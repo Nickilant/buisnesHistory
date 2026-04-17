@@ -90,6 +90,7 @@
 - `GET|POST /bitrix/widget`
 - `GET /health`
 - `POST /auth/bitrix-auto`
+- `POST /auth/local` (локальный dev-вход)
 
 Защищённые (`Authorization: Bearer <token>`):
 - `GET /cases`
@@ -130,6 +131,7 @@ DATABASE_URL=postgresql+psycopg2://app:app@postgres:5432/casebook
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
 CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
+CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 SCHEDULER_HOUR_MSK=11
 SCHEDULER_MINUTE_MSK=59
@@ -137,10 +139,14 @@ SCHEDULER_MINUTE_MSK=59
 JWT_SECRET=super-secret-change-me
 JWT_ALGORITHM=HS256
 JWT_EXP_MINUTES=720
+ALLOW_LOCAL_DEV_AUTH=true
+CORS_ALLOW_ORIGINS=*
 
 FRONTEND_URL=http://localhost:8080
 FRONTEND_API_URL=http://localhost:8000
 ```
+
+`CORS_ALLOW_ORIGINS` можно оставить `*` для локальной разработки. Для более строгого режима укажите список через запятую, например: `http://localhost:8080,http://127.0.0.1:8080`.
 
 2. Запустите:
 
@@ -168,6 +174,7 @@ docker compose up --build
 - Все секреты только через env.
 - Все закрытые ручки требуют Bearer JWT.
 - Публичными оставлены install/uninstall/widget/health/auth.
+- `POST /auth/local` используйте только в локальной разработке (можно отключить через `ALLOW_LOCAL_DEV_AUTH=false`).
 
 ## Структура проекта
 
@@ -206,6 +213,10 @@ docker compose up --build
 ```bash
 curl -X POST http://localhost:8001/sync/manual
 ```
+
+Если получаете `401 Unauthorized` от Casebook:
+- проверьте `CASEBOOK_API_KEY`;
+- попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
 
 Получить token авто-логина:
 ```bash

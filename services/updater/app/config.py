@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     casebook_api_url: str = 'https://api3.casebook.ru/arbitrage/tracking/events/documents'
     casebook_api_key: str
     casebook_api_version: str = '2'
+    casebook_auth_scheme: str = 'auto'
     page_size: int = 100
 
     scheduler_hour_msk: int = 11

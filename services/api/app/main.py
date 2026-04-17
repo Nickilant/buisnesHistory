@@ -2,6 +2,7 @@ from urllib.parse import urlencode
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy import and_, func, select
 
@@ -10,6 +11,15 @@ from .config import settings
 from .db import BitrixPortal, Case, ContentType, DocumentEvent, SessionLocal, init_db
 
 app = FastAPI(title='Casebook Widget API')
+cors_origins = [origin.strip() for origin in settings.cors_allow_origins.split(',') if origin.strip()]
+allow_all_origins = '*' in cors_origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'] if allow_all_origins else cors_origins,
+    allow_credentials=not allow_all_origins,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 
 EVENT_TRANSLATIONS = {
@@ -110,6 +120,15 @@ def bitrix_auto_login(payload: dict):
 
         token = create_access_token({'sub': str(user_id), 'member_id': member_id, 'domain': portal.domain})
         return {'access_token': token, 'token_type': 'bearer'}
+
+
+@app.post('/auth/local')
+def local_login():
+    if not settings.allow_local_dev_auth:
+        raise HTTPException(status_code=403, detail='Local auth is disabled')
+
+    token = create_access_token({'sub': 'local-dev-user', 'member_id': 'local-dev', 'domain': 'local.test'})
+    return {'access_token': token, 'token_type': 'bearer'}
 
 
 @app.post('/bitrix/token/refresh')

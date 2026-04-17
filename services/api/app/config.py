@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     jwt_secret: str = 'change-me'
     jwt_algorithm: str = 'HS256'
     jwt_exp_minutes: int = 720
+    allow_local_dev_auth: bool = True
+    cors_allow_origins: str = '*'
 
     frontend_url: str = 'http://localhost:8080'
 

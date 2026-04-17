@@ -11,6 +11,11 @@ services:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-casebook}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   updater:
     build: ./services/updater
@@ -19,11 +24,13 @@ services:
       CASEBOOK_API_URL: ${CASEBOOK_API_URL:-https://api3.casebook.ru/arbitrage/tracking/events/documents}
       CASEBOOK_API_KEY: ${CASEBOOK_API_KEY}
       CASEBOOK_API_VERSION: ${CASEBOOK_API_VERSION:-2}
+      CASEBOOK_AUTH_SCHEME: ${CASEBOOK_AUTH_SCHEME:-auto}
       PAGE_SIZE: ${PAGE_SIZE:-100}
       SCHEDULER_HOUR_MSK: ${SCHEDULER_HOUR_MSK:-11}
       SCHEDULER_MINUTE_MSK: ${SCHEDULER_MINUTE_MSK:-59}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
       - '8001:8001'
 
@@ -34,9 +41,12 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_EXP_MINUTES: ${JWT_EXP_MINUTES:-720}
+      ALLOW_LOCAL_DEV_AUTH: ${ALLOW_LOCAL_DEV_AUTH:-true}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
       - '8000:8000'
 
@@ -45,7 +55,8 @@ services:
     environment:
       FRONTEND_API_URL: ${FRONTEND_API_URL:-http://localhost:8000}
     depends_on:
-      - api
+      api:
+        condition: service_started
     ports:
       - '8080:8080'
 

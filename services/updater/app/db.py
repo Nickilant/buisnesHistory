@@ -1,8 +1,10 @@
 import uuid
+from time import sleep
 from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, create_engine, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from .config import settings
@@ -62,5 +64,22 @@ class ContentType(Base):
     event: Mapped[DocumentEvent] = relationship(back_populates='content_types')
 
 
-def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+def init_db(max_attempts: int = 10, retry_delay_seconds: int = 3) -> None:
+    last_error: OperationalError | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with engine.begin() as conn:
+                conn.exec_driver_sql('SELECT pg_advisory_lock(214748364)')
+                try:
+                    Base.metadata.create_all(bind=conn)
+                finally:
+                    conn.exec_driver_sql('SELECT pg_advisory_unlock(214748364)')
+            return
+        except OperationalError as exc:
+            last_error = exc
+            if attempt == max_attempts:
+                raise
+            sleep(retry_delay_seconds)
+
+    if last_error is not None:
+        raise last_error
