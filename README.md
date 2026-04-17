@@ -90,6 +90,7 @@
 - `GET|POST /bitrix/widget`
 - `GET /health`
 - `POST /auth/bitrix-auto`
+- `POST /auth/local` (локальный dev-вход)
 
 Защищённые (`Authorization: Bearer <token>`):
 - `GET /cases`
@@ -137,6 +138,7 @@ SCHEDULER_MINUTE_MSK=59
 JWT_SECRET=super-secret-change-me
 JWT_ALGORITHM=HS256
 JWT_EXP_MINUTES=720
+ALLOW_LOCAL_DEV_AUTH=true
 
 FRONTEND_URL=http://localhost:8080
 FRONTEND_API_URL=http://localhost:8000
@@ -168,6 +170,7 @@ docker compose up --build
 - Все секреты только через env.
 - Все закрытые ручки требуют Bearer JWT.
 - Публичными оставлены install/uninstall/widget/health/auth.
+- `POST /auth/local` используйте только в локальной разработке (можно отключить через `ALLOW_LOCAL_DEV_AUTH=false`).
 
 ## Структура проекта
 

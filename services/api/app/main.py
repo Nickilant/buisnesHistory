@@ -112,6 +112,15 @@ def bitrix_auto_login(payload: dict):
         return {'access_token': token, 'token_type': 'bearer'}
 
 
+@app.post('/auth/local')
+def local_login():
+    if not settings.allow_local_dev_auth:
+        raise HTTPException(status_code=403, detail='Local auth is disabled')
+
+    token = create_access_token({'sub': 'local-dev-user', 'member_id': 'local-dev', 'domain': 'local.test'})
+    return {'access_token': token, 'token_type': 'bearer'}
+
+
 @app.post('/bitrix/token/refresh')
 def refresh_bitrix_token(payload: dict, _: dict = Depends(require_auth)):
     domain = payload.get('domain')

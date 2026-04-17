@@ -20,19 +20,36 @@ async function ensureAuth() {
   const domain = query.get('DOMAIN') || query.get('domain');
 
   let token = localStorage.getItem('access_token');
-  if (!token && memberId && userId) {
-    const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ member_id: memberId, user_id: userId, domain }),
-    });
-    if (!resp.ok) throw new Error('Не удалось выполнить авто-логин');
-    const data = await resp.json();
-    token = data.access_token;
-    localStorage.setItem('access_token', token);
+  if (!token) {
+    if (memberId && userId) {
+      const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: memberId, user_id: userId, domain }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        token = data.access_token;
+        localStorage.setItem('access_token', token);
+      } else {
+        console.warn('Bitrix auto-login failed, trying local auth fallback');
+      }
+    }
+
+    if (!token) {
+      const localResp = await fetch(`${API_URL}/auth/local`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (localResp.ok) {
+        const data = await localResp.json();
+        token = data.access_token;
+        localStorage.setItem('access_token', token);
+      }
+    }
   }
 
-  if (!token) throw new Error('Нет access token, откройте виджет из Bitrix24.');
+  if (!token) throw new Error('Нет access token. Для локального запуска включите ALLOW_LOCAL_DEV_AUTH=true.');
   return token;
 }
 
