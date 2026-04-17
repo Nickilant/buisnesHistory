@@ -1,0 +1,53 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-casebook}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  updater:
+    build: ./services/updater
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://app:app@postgres:5432/casebook}
+      CASEBOOK_API_URL: ${CASEBOOK_API_URL:-https://api3.casebook.ru/arbitrage/tracking/events/documents}
+      CASEBOOK_API_KEY: ${CASEBOOK_API_KEY}
+      CASEBOOK_API_VERSION: ${CASEBOOK_API_VERSION:-2}
+      PAGE_SIZE: ${PAGE_SIZE:-100}
+      SCHEDULER_HOUR_MSK: ${SCHEDULER_HOUR_MSK:-11}
+      SCHEDULER_MINUTE_MSK: ${SCHEDULER_MINUTE_MSK:-59}
+    depends_on:
+      - postgres
+    ports:
+      - '8001:8001'
+
+  api:
+    build: ./services/api
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://app:app@postgres:5432/casebook}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXP_MINUTES: ${JWT_EXP_MINUTES:-720}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+    depends_on:
+      - postgres
+    ports:
+      - '8000:8000'
+
+  frontend:
+    build: ./frontend
+    environment:
+      FRONTEND_API_URL: ${FRONTEND_API_URL:-http://localhost:8000}
+    depends_on:
+      - api
+    ports:
+      - '8080:8080'
+
+volumes:
+  postgres_data:
