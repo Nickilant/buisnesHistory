@@ -194,7 +194,10 @@ def case_history(case_external_id: str, _: dict = Depends(require_auth)):
             select(DocumentEvent, ContentType)
             .join(ContentType, ContentType.event_id == DocumentEvent.id)
             .where(DocumentEvent.case_id == case.id)
-            .order_by(DocumentEvent.find_date.asc(), DocumentEvent.actual_date.asc())
+            .order_by(
+                DocumentEvent.actual_date.asc().nulls_last(),
+                DocumentEvent.find_date.asc().nulls_last(),
+            )
         )
         rows = db.execute(stmt).all()
 

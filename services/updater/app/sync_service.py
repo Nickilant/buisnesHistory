@@ -168,7 +168,7 @@ def sync_casebook_range(start_date: datetime.date, end_date: datetime.date) -> d
     }
 
 
-def sync_previous_24_hours() -> dict[str, int]:
+def sync_today_and_tomorrow() -> dict[str, int]:
     today_utc = datetime.now(timezone.utc).date()
-    yesterday_utc = today_utc - timedelta(days=1)
-    return sync_casebook_range(yesterday_utc, today_utc)
+    tomorrow_utc = today_utc + timedelta(days=1)
+    return sync_casebook_range(today_utc, tomorrow_utc)

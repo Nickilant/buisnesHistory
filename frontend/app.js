@@ -1,4 +1,7 @@
 const API_URL = window.__API_URL__ || 'http://localhost:8000';
+const PAGE_SIZE = 10;
+let currentPage = 1;
+let currentCases = [];
 
 function parsePlacementOptions(raw) {
   if (!raw) return {};
@@ -80,41 +83,104 @@ function createHistoryRow(item) {
   const row = document.createElement('div');
   row.className = 'history-row';
   row.innerHTML = `
-    <div>${formatDate(item.findDate)}</div>
-    <div>${formatDate(item.actualDate)}</div>
-    <div>${item.eventType}</div>
-    <div>${item.contentTypeName}</div>
+    <div class="history-cell">
+      <span class="history-label">Найдено</span>
+      <span>${formatDate(item.findDate)}</span>
+    </div>
+    <div class="history-cell">
+      <span class="history-label">Актуально</span>
+      <span>${formatDate(item.actualDate)}</span>
+    </div>
+    <div class="history-cell">
+      <span class="history-label">Тип события</span>
+      <span>${item.eventType}</span>
+    </div>
+    <div class="history-cell">
+      <span class="history-label">Документ</span>
+      <span>${item.contentTypeName}</span>
+    </div>
   `;
   return row;
+}
+
+function renderPagination(totalItems) {
+  const pagination = document.getElementById('pagination');
+  pagination.innerHTML = '';
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  if (totalItems <= PAGE_SIZE) return;
+
+  const prev = document.createElement('button');
+  prev.className = 'pager-btn';
+  prev.textContent = '← Назад';
+  prev.disabled = currentPage === 1;
+  prev.addEventListener('click', () => {
+    if (currentPage > 1) {
+      currentPage -= 1;
+      renderCases(currentCases, window.__token);
+    }
+  });
+
+  const indicator = document.createElement('div');
+  indicator.className = 'pager-indicator';
+  indicator.textContent = `Страница ${currentPage} из ${totalPages}`;
+
+  const next = document.createElement('button');
+  next.className = 'pager-btn';
+  next.textContent = 'Вперёд →';
+  next.disabled = currentPage === totalPages;
+  next.addEventListener('click', () => {
+    if (currentPage < totalPages) {
+      currentPage += 1;
+      renderCases(currentCases, window.__token);
+    }
+  });
+
+  pagination.appendChild(prev);
+  pagination.appendChild(indicator);
+  pagination.appendChild(next);
 }
 
 function renderCases(cases, token) {
   const container = document.getElementById('case-list');
   container.innerHTML = '';
+  currentCases = cases;
 
   if (!cases.length) {
     container.innerHTML = '<div class="muted">Ничего не найдено.</div>';
+    renderPagination(0);
     return;
   }
 
-  cases.forEach((item) => {
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const visibleCases = cases.slice(start, start + PAGE_SIZE);
+
+  visibleCases.forEach((item) => {
     const wrapper = document.createElement('article');
     wrapper.className = 'case-item';
 
-    const row = document.createElement('div');
+    const row = document.createElement('button');
     row.className = 'case-row';
+    row.type = 'button';
+    row.setAttribute('aria-expanded', 'false');
     row.innerHTML = `
-      <div>${item.caseNumber}</div>
-      <a class="case-link" target="_blank" href="${item.caseLink}">ссылка на дело</a>
-      <button>История</button>
+      <div class="case-meta">
+        <div class="case-number">${item.caseNumber}</div>
+        <div class="case-date">Последнее обновление: ${formatDate(item.latestFindDate)}</div>
+      </div>
+      <a class="case-link" target="_blank" href="${item.caseLink}">Открыть дело ↗</a>
+      <span class="chevron" aria-hidden="true">⌄</span>
     `;
 
-    const btn = row.querySelector('button');
+    const link = row.querySelector('.case-link');
     const history = document.createElement('div');
     history.className = 'history';
     history.style.display = 'none';
 
-    btn.addEventListener('click', async () => {
+    link.addEventListener('click', (event) => {
+      event.stopPropagation();
+    });
+
+    row.addEventListener('click', async () => {
       if (history.style.display === 'none') {
         if (!history.dataset.loaded) {
           const items = await fetchHistory(token, item.caseId);
@@ -122,10 +188,12 @@ function renderCases(cases, token) {
           history.dataset.loaded = '1';
         }
         history.style.display = 'block';
-        btn.textContent = 'Скрыть';
+        row.classList.add('expanded');
+        row.setAttribute('aria-expanded', 'true');
       } else {
         history.style.display = 'none';
-        btn.textContent = 'История';
+        row.classList.remove('expanded');
+        row.setAttribute('aria-expanded', 'false');
       }
     });
 
@@ -133,6 +201,8 @@ function renderCases(cases, token) {
     wrapper.appendChild(history);
     container.appendChild(wrapper);
   });
+
+  renderPagination(cases.length);
 }
 
 async function bootstrap() {
@@ -148,9 +218,11 @@ async function bootstrap() {
   }
 
   const token = await ensureAuth();
+  window.__token = token;
   const searchInput = document.getElementById('search');
 
   async function refresh() {
+    currentPage = 1;
     const list = await fetchCases(token, searchInput.value.trim());
     renderCases(list, token);
   }
