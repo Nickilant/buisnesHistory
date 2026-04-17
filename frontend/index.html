@@ -9,11 +9,15 @@
   <body>
     <main class="app">
       <header class="header">
-        <h1>История арбитражных дел</h1>
+        <div class="header-title">
+          <h1>История арбитражных дел</h1>
+          <p>Отслеживайте изменения по делам и быстро открывайте карточку в КАД</p>
+        </div>
         <input id="search" type="text" placeholder="Поиск по номеру дела" />
       </header>
       <section>
         <div id="case-list" class="case-list"></div>
+        <div id="pagination" class="pagination"></div>
       </section>
     </main>
     <script src="config.js"></script>

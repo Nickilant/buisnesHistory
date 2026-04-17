@@ -5,14 +5,14 @@ from fastapi import FastAPI, HTTPException
 
 from .config import settings
 from .db import init_db
-from .sync_service import sync_previous_24_hours
+from .sync_service import sync_today_and_tomorrow
 
 app = FastAPI(title='Casebook Updater Service')
 scheduler = BackgroundScheduler(timezone=ZoneInfo('Europe/Moscow'))
 
 
 def scheduled_sync() -> None:
-    sync_previous_24_hours()
+    sync_today_and_tomorrow()
 
 
 @app.on_event('startup')
@@ -43,7 +43,7 @@ def health() -> dict[str, str]:
 @app.post('/sync/manual')
 def run_manual_sync() -> dict:
     try:
-        result = sync_previous_24_hours()
+        result = sync_today_and_tomorrow()
         return {'status': 'ok', 'result': result}
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
