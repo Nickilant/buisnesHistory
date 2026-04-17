@@ -5,6 +5,7 @@ from typing import Any
 
 import requests
 from dateutil import parser
+from requests import HTTPError
 from sqlalchemy import select
 
 from .config import settings
@@ -32,6 +33,25 @@ def _build_hash(item: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
+def _build_casebook_headers() -> dict[str, str]:
+    """
+    Supports multiple auth styles used by Casebook deployments:
+    - legacy headers: apikey/apiversion
+    - bearer token in Authorization
+    """
+    scheme = settings.casebook_auth_scheme.lower()
+    headers: dict[str, str] = {}
+
+    if scheme in {'auto', 'apikey'}:
+        headers['apikey'] = settings.casebook_api_key
+        headers['apiversion'] = settings.casebook_api_version
+
+    if scheme in {'auto', 'bearer'}:
+        headers['Authorization'] = f'Bearer {settings.casebook_api_key}'
+
+    return headers
+
+
 def fetch_casebook_day(start_date: datetime.date, end_date: datetime.date) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
@@ -47,14 +67,19 @@ def fetch_casebook_day(start_date: datetime.date, end_date: datetime.date) -> li
 
         response = requests.get(
             settings.casebook_api_url,
-            headers={
-                'apikey': settings.casebook_api_key,
-                'apiversion': settings.casebook_api_version,
-            },
+            headers=_build_casebook_headers(),
             params=params,
             timeout=40,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except HTTPError as exc:
+            if response.status_code == 401:
+                raise RuntimeError(
+                    'Casebook вернул 401 Unauthorized. Проверьте CASEBOOK_API_KEY и схему '
+                    'авторизации CASEBOOK_AUTH_SCHEME (auto/apikey/bearer).'
+                ) from exc
+            raise
         payload = response.json()
 
         batch = payload.get('items') or []

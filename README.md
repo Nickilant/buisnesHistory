@@ -131,6 +131,7 @@ DATABASE_URL=postgresql+psycopg2://app:app@postgres:5432/casebook
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
 CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
+CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 SCHEDULER_HOUR_MSK=11
 SCHEDULER_MINUTE_MSK=59
@@ -209,6 +210,10 @@ docker compose up --build
 ```bash
 curl -X POST http://localhost:8001/sync/manual
 ```
+
+Если получаете `401 Unauthorized` от Casebook:
+- проверьте `CASEBOOK_API_KEY`;
+- попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
 
 Получить token авто-логина:
 ```bash
