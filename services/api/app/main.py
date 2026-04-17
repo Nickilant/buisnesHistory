@@ -2,6 +2,7 @@ from urllib.parse import urlencode
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy import and_, func, select
 
@@ -10,6 +11,15 @@ from .config import settings
 from .db import BitrixPortal, Case, ContentType, DocumentEvent, SessionLocal, init_db
 
 app = FastAPI(title='Casebook Widget API')
+cors_origins = [origin.strip() for origin in settings.cors_allow_origins.split(',') if origin.strip()]
+allow_all_origins = '*' in cors_origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'] if allow_all_origins else cors_origins,
+    allow_credentials=not allow_all_origins,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 
 EVENT_TRANSLATIONS = {

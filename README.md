@@ -140,10 +140,13 @@ JWT_SECRET=super-secret-change-me
 JWT_ALGORITHM=HS256
 JWT_EXP_MINUTES=720
 ALLOW_LOCAL_DEV_AUTH=true
+CORS_ALLOW_ORIGINS=*
 
 FRONTEND_URL=http://localhost:8080
 FRONTEND_API_URL=http://localhost:8000
 ```
+
+`CORS_ALLOW_ORIGINS` можно оставить `*` для локальной разработки. Для более строгого режима укажите список через запятую, например: `http://localhost:8080,http://127.0.0.1:8080`.
 
 2. Запустите:
 

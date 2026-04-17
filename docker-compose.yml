@@ -42,6 +42,7 @@ services:
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_EXP_MINUTES: ${JWT_EXP_MINUTES:-720}
       ALLOW_LOCAL_DEV_AUTH: ${ALLOW_LOCAL_DEV_AUTH:-true}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
     depends_on:
       postgres:

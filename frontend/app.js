@@ -163,5 +163,8 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  document.getElementById('case-list').innerHTML = `<div class="muted">${err.message}</div>`;
+  const message = err instanceof TypeError
+    ? 'Failed to fetch: проверьте, что API поднят на FRONTEND_API_URL и CORS_ALLOW_ORIGINS разрешает origin фронта.'
+    : err.message;
+  document.getElementById('case-list').innerHTML = `<div class="muted">${message}</div>`;
 });
