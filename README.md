@@ -143,7 +143,7 @@ ALLOW_LOCAL_DEV_AUTH=true
 CORS_ALLOW_ORIGINS=*
 
 FRONTEND_URL=http://localhost:8080
-FRONTEND_API_URL=http://localhost:8000
+FRONTEND_API_URL=/api
 ```
 
 `CORS_ALLOW_ORIGINS` можно оставить `*` для локальной разработки. Для более строгого режима укажите список через запятую, например: `http://localhost:8080,http://127.0.0.1:8080`.
@@ -296,7 +296,7 @@ ALLOW_LOCAL_DEV_AUTH=false
 
 CORS_ALLOW_ORIGINS=https://your-domain.com,https://www.your-domain.com
 FRONTEND_URL=https://your-domain.com
-FRONTEND_API_URL=https://your-domain.com/api
+FRONTEND_API_URL=/api
 ```
 
 ### 5) Публикация сервисов
@@ -384,3 +384,4 @@ docker compose up -d --build
 - `https://your-domain.com/api/health` возвращает `{"status":"ok"}`.
 - В `.env` обязательно `ALLOW_LOCAL_DEV_AUTH=false` в проде.
 - В Bitrix app URL виджета указывать на backend route `/bitrix/widget` вашего домена.
+- Если фронт всё равно стучится в `localhost:8000`, проверьте значение `FRONTEND_API_URL` в контейнере `frontend` и очистите кэш браузера (файл `/config.js` мог закэшироваться).

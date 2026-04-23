@@ -53,7 +53,7 @@ services:
   frontend:
     build: ./frontend
     environment:
-      FRONTEND_API_URL: ${FRONTEND_API_URL:-http://localhost:8000}
+      FRONTEND_API_URL: ${FRONTEND_API_URL:-/api}
     depends_on:
       api:
         condition: service_started
