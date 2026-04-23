@@ -381,6 +381,8 @@ export default function App() {
   const [token, setToken] = useState(null)
   const [cases, setCases] = useState([])
   const [events, setEvents] = useState([])
+  const [widgetEvents, setWidgetEvents] = useState([])
+  const [widgetCaseLink, setWidgetCaseLink] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
@@ -415,11 +417,23 @@ export default function App() {
     setLoading(true)
     setError(null)
     try {
-      if (currentTab === 'events' && currentMode === 'local') {
+      if (currentMode === 'widget') {
+        const list = await fetchCases(tok, q, caseNumber)
+        setCases(list)
+        const widgetCase = list[0]
+        setWidgetCaseLink(widgetCase?.caseLink || '')
+        if (widgetCase?.caseId) {
+          const history = await fetchHistory(tok, widgetCase.caseId)
+          const sorted = [...history].sort((a, b) => new Date(b.findDate) - new Date(a.findDate))
+          setWidgetEvents(sorted)
+        } else {
+          setWidgetEvents([])
+        }
+      } else if (currentTab === 'events' && currentMode === 'local') {
         const list = await fetchAllEvents(tok, q, fromDate, toDate)
         setEvents(list)
       } else {
-        const list = await fetchCases(tok, q, currentMode === 'widget' ? caseNumber : '')
+        const list = await fetchCases(tok, q, '')
         setCases(list)
       }
       setPage(1)
@@ -442,7 +456,10 @@ export default function App() {
     }, 350)
   }
 
-  const activeItems = useMemo(() => (tab === 'events' ? events : cases), [tab, events, cases])
+  const activeItems = useMemo(() => {
+    if (mode === 'widget') return widgetEvents
+    return tab === 'events' ? events : cases
+  }, [mode, tab, events, cases, widgetEvents])
   const visibleItems = activeItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   return (
@@ -458,8 +475,18 @@ export default function App() {
               <Scale size={18} strokeWidth={1.5} />
             </div>
             <div>
-              <h1>Арбитражные дела</h1>
+              <h1>{mode === 'widget' ? `Арбитражное дело ${widgetCaseNumber || ''}`.trim() : 'Арбитражные дела'}</h1>
               <p>{mode === 'widget' ? 'История по делу из карточки пользователя' : 'Мониторинг событий КАД в реальном времени'}</p>
+              {mode === 'widget' && widgetCaseLink && (
+                <a
+                  className="case-link timeline-link"
+                  href={widgetCaseLink}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Открыть дело в КАД <ExternalLink size={12} />
+                </a>
+              )}
             </div>
           </div>
 
@@ -470,29 +497,33 @@ export default function App() {
             </div>
           )}
 
-          <div className="search-wrap">
-            <Search size={14} className="search-icon-el" />
-            <input
-              className="search-input"
-              type="text"
-              value={search}
-              onChange={e => handleSearch(e.target.value)}
-              placeholder="Поиск по номеру дела…"
-            />
-            <AnimatePresence>
-              {search && (
-                <motion.button
-                  className="search-clear"
-                  initial={{ opacity: 0, scale: 0.6 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.6 }}
-                  onClick={() => handleSearch('')}
-                >×</motion.button>
-              )}
-            </AnimatePresence>
-          </div>
+          {mode === 'local' && (
+            <>
+              <div className="search-wrap">
+                <Search size={14} className="search-icon-el" />
+                <input
+                  className="search-input"
+                  type="text"
+                  value={search}
+                  onChange={e => handleSearch(e.target.value)}
+                  placeholder="Поиск по номеру дела…"
+                />
+                <AnimatePresence>
+                  {search && (
+                    <motion.button
+                      className="search-clear"
+                      initial={{ opacity: 0, scale: 0.6 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.6 }}
+                      onClick={() => handleSearch('')}
+                    >×</motion.button>
+                  )}
+                </AnimatePresence>
+              </div>
 
-          <div className="cases-count">{activeItems.length} записей</div>
+              <div className="cases-count">{activeItems.length} записей</div>
+            </>
+          )}
         </header>
 
         {mode === "local" && tab === "events" && (
@@ -563,15 +594,23 @@ export default function App() {
                       </div>
                     </article>
                   ))
-                  : visibleItems.map((item, i) => (
-                    <CaseItem key={item.caseId} item={item} token={token} index={i} />
-                  ))}
+                  : mode === 'widget'
+                    ? visibleItems.map((item, i) => (
+                      <article key={`${item.caseId || 'widget'}-${i}`} className="case-item">
+                        <div className="history-panel">
+                          <HistoryRow item={item} index={i} />
+                        </div>
+                      </article>
+                    ))
+                    : visibleItems.map((item, i) => (
+                      <CaseItem key={item.caseId} item={item} token={token} index={i} />
+                    ))}
               </motion.div>
             )}
           </AnimatePresence>
         </main>
 
-        {!loading && !error && (
+        {!loading && !error && mode === 'local' && (
           <Pagination
             total={activeItems.length}
             current={page}
