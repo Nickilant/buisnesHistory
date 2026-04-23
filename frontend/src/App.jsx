@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from 'lucide-react'
 import './App.css'
 
-const API_URL = window.__API_URL__ || 'http://localhost:8000'
+const API_URL = window.__API_URL__ || '/api'
 const PAGE_SIZE = 10
 const CASE_NUMBER_FIELDS = ['UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
 
