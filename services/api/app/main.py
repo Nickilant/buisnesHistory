@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -29,6 +29,32 @@ EVENT_TRANSLATIONS = {
 }
 
 
+async def read_payload(request: Request) -> dict[str, str]:
+    payload = dict(request.query_params)
+    if request.method != 'POST':
+        return payload
+
+    content_type = (request.headers.get('content-type') or '').lower()
+    if 'application/json' in content_type:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                payload.update({k: str(v) for k, v in body.items()})
+                return payload
+        except Exception:
+            pass
+
+    try:
+        form = await request.form()
+        payload.update({k: str(v) for k, v in form.items()})
+    except Exception:
+        body = (await request.body()).decode('utf-8', errors='ignore')
+        if body:
+            payload.update({k: v[0] for k, v in parse_qs(body).items() if v})
+
+    return payload
+
+
 @app.on_event('startup')
 def startup_event() -> None:
     init_db()
@@ -41,10 +67,7 @@ def health() -> dict[str, str]:
 
 @app.api_route('/bitrix/install', methods=['GET', 'POST'])
 async def bitrix_install(request: Request):
-    payload = dict(request.query_params)
-    if request.method == 'POST':
-        body = await request.json()
-        payload.update(body)
+    payload = await read_payload(request)
 
     domain = payload.get('DOMAIN') or payload.get('domain')
     member_id = payload.get('member_id') or payload.get('memberId')
@@ -69,10 +92,7 @@ async def bitrix_install(request: Request):
 
 @app.api_route('/bitrix/uninstall', methods=['GET', 'POST'])
 async def bitrix_uninstall(request: Request):
-    payload = dict(request.query_params)
-    if request.method == 'POST':
-        body = await request.json()
-        payload.update(body)
+    payload = await read_payload(request)
 
     domain = payload.get('DOMAIN') or payload.get('domain')
     if not domain:
@@ -91,10 +111,7 @@ async def bitrix_uninstall(request: Request):
 
 @app.api_route('/bitrix/widget', methods=['GET', 'POST'])
 async def bitrix_widget(request: Request):
-    payload = dict(request.query_params)
-    if request.method == 'POST':
-        body = await request.json()
-        payload.update({k: str(v) for k, v in body.items()})
+    payload = await read_payload(request)
 
     redirect_url = f"{settings.frontend_url}?{urlencode(payload)}" if payload else settings.frontend_url
     return RedirectResponse(url=redirect_url, status_code=307)
