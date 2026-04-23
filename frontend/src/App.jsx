@@ -80,9 +80,11 @@ async function fetchCases(token, search = '', caseNumber = '') {
   return apiGet(`/cases?${params.toString()}`, token)
 }
 
-async function fetchAllEvents(token, search = '') {
+async function fetchAllEvents(token, search = '', dateFrom = '', dateTo = '') {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
   return apiGet(`/events/history?${params.toString()}`, token)
 }
 
@@ -300,6 +302,8 @@ export default function App() {
   const [widgetCaseNumber, setWidgetCaseNumber] = useState('')
   const [mode, setMode] = useState('local')
   const [tab, setTab] = useState('cases')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const debounceRef = useRef(null)
 
   useEffect(() => {
@@ -319,12 +323,12 @@ export default function App() {
     }
   }, [])
 
-  const load = useCallback(async (tok, q, currentTab, currentMode, caseNumber) => {
+  const load = useCallback(async (tok, q, currentTab, currentMode, caseNumber, fromDate, toDate) => {
     setLoading(true)
     setError(null)
     try {
       if (currentTab === 'events' && currentMode === 'local') {
-        const list = await fetchAllEvents(tok, q)
+        const list = await fetchAllEvents(tok, q, fromDate, toDate)
         setEvents(list)
       } else {
         const list = await fetchCases(tok, q, currentMode === 'widget' ? caseNumber : '')
@@ -339,14 +343,14 @@ export default function App() {
 
   useEffect(() => {
     if (mode === 'widget' && !widgetCaseNumber) return
-    load(token, search, tab, mode, widgetCaseNumber)
-  }, [token, load, tab, mode, widgetCaseNumber])
+    load(token, search, tab, mode, widgetCaseNumber, dateFrom, dateTo)
+  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo])
 
   const handleSearch = (val) => {
     setSearch(val)
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      load(token, val, tab, mode, widgetCaseNumber)
+      load(token, val, tab, mode, widgetCaseNumber, dateFrom, dateTo)
     }, 350)
   }
 
@@ -360,12 +364,7 @@ export default function App() {
       <div className="orb orb3" />
 
       <div className="container">
-        <motion.header
-          className="header"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        >
+        <header className="header">
           <div className="brand">
             <div className="brand-icon">
               <Scale size={18} strokeWidth={1.5} />
@@ -405,17 +404,36 @@ export default function App() {
             </AnimatePresence>
           </div>
 
-          {!loading && !error && (
-            <motion.div
-              className="cases-count"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
+          <div className="cases-count">{activeItems.length} записей</div>
+        </header>
+
+        {mode === "local" && tab === "events" && (
+          <section className="range-panel">
+            <label className="range-field">
+              С
+              <input
+                type="datetime-local"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </label>
+            <label className="range-field">
+              По
+              <input
+                type="datetime-local"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="range-reset"
+              onClick={() => { setDateFrom(""); setDateTo(""); }}
             >
-              {activeItems.length} записей
-            </motion.div>
-          )}
-        </motion.header>
+              Сбросить
+            </button>
+          </section>
+        )}
 
         <main className="main">
           {mode === 'widget' && !widgetCaseNumber && !loading && (

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import requests
@@ -188,7 +189,12 @@ def list_cases(search: str | None = None, case_number: str | None = None, _: dic
 
 
 @app.get('/events/history')
-def events_history(search: str | None = None, _: dict = Depends(require_auth)):
+def events_history(
+    search: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    _: dict = Depends(require_auth),
+):
     with SessionLocal() as db:
         stmt = (
             select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType)
@@ -201,6 +207,24 @@ def events_history(search: str | None = None, _: dict = Depends(require_auth)):
         )
         if search:
             stmt = stmt.where(Case.case_number.ilike(f'%{search}%'))
+
+        if date_from:
+            try:
+                from_dt = datetime.fromisoformat(date_from)
+                if from_dt.tzinfo is None:
+                    from_dt = from_dt.replace(tzinfo=timezone.utc)
+                stmt = stmt.where(DocumentEvent.find_date >= from_dt)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail='Invalid date_from format') from exc
+
+        if date_to:
+            try:
+                to_dt = datetime.fromisoformat(date_to)
+                if to_dt.tzinfo is None:
+                    to_dt = to_dt.replace(tzinfo=timezone.utc)
+                stmt = stmt.where(DocumentEvent.find_date <= to_dt)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail='Invalid date_to format') from exc
 
         rows = db.execute(stmt).all()
 

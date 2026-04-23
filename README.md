@@ -229,3 +229,146 @@ curl -X POST http://localhost:8000/auth/bitrix-auto \
 ```bash
 curl http://localhost:8000/cases -H 'Authorization: Bearer <TOKEN>'
 ```
+
+## Развертывание на Ubuntu сервере (Docker + домен)
+
+Ниже минимально-практичный сценарий для **Ubuntu 22.04/24.04** с уже купленным доменом.
+
+### 1) Подготовка DNS
+
+У регистратора домена создайте записи:
+- `A` запись `@` → `PUBLIC_SERVER_IP`
+- `A` запись `www` → `PUBLIC_SERVER_IP` (опционально)
+
+Проверка:
+```bash
+dig +short your-domain.com
+dig +short www.your-domain.com
+```
+
+### 2) Подготовка сервера
+
+```bash
+sudo apt update && sudo apt -y upgrade
+sudo apt -y install ca-certificates curl git
+
+# Docker Engine
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Docker Compose plugin
+docker compose version
+```
+
+### 3) Клонирование проекта
+
+```bash
+git clone <YOUR_REPO_URL> /opt/casebook
+cd /opt/casebook
+```
+
+### 4) Продакшн `.env`
+
+Создайте файл `.env` в корне проекта (важные отличия от локальной разработки):
+
+```env
+POSTGRES_DB=casebook
+POSTGRES_USER=app
+POSTGRES_PASSWORD=strong_password_here
+DATABASE_URL=postgresql+psycopg2://app:strong_password_here@postgres:5432/casebook
+
+CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
+CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
+CASEBOOK_API_VERSION=2
+CASEBOOK_AUTH_SCHEME=auto
+PAGE_SIZE=100
+SCHEDULER_HOUR_MSK=11
+SCHEDULER_MINUTE_MSK=59
+
+JWT_SECRET=very-long-random-secret
+JWT_ALGORITHM=HS256
+JWT_EXP_MINUTES=720
+ALLOW_LOCAL_DEV_AUTH=false
+
+CORS_ALLOW_ORIGINS=https://your-domain.com,https://www.your-domain.com
+FRONTEND_URL=https://your-domain.com
+FRONTEND_API_URL=https://your-domain.com/api
+```
+
+### 5) Публикация сервисов
+
+```bash
+docker compose up -d --build
+```
+
+Проверка контейнеров:
+```bash
+docker compose ps
+docker compose logs -f api
+```
+
+### 6) Reverse proxy (Nginx) + HTTPS (Let's Encrypt)
+
+Обычно в проде удобнее отдавать трафик так:
+- `https://your-domain.com/` → `frontend-service:80`
+- `https://your-domain.com/api/` → `api-service:8000`
+
+Установите Nginx и Certbot на хосте:
+```bash
+sudo apt -y install nginx certbot python3-certbot-nginx
+```
+
+Пример конфига `/etc/nginx/sites-available/casebook.conf`:
+
+```nginx
+server {
+    server_name your-domain.com www.your-domain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/ {
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Активируйте сайт и выпустите сертификат:
+```bash
+sudo ln -s /etc/nginx/sites-available/casebook.conf /etc/nginx/sites-enabled/casebook.conf
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot --nginx -d your-domain.com -d www.your-domain.com
+```
+
+### 7) Firewall
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+```
+
+### 8) Обновления релиза
+
+```bash
+cd /opt/casebook
+git pull
+docker compose up -d --build
+```
+
+### 9) Что проверить после деплоя
+
+- `https://your-domain.com` открывает UI.
+- `https://your-domain.com/api/health` возвращает `{"status":"ok"}`.
+- В `.env` обязательно `ALLOW_LOCAL_DEV_AUTH=false` в проде.
+- В Bitrix app URL виджета указывать на backend route `/bitrix/widget` вашего домена.
