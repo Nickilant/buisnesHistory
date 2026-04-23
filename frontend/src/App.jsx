@@ -26,8 +26,40 @@ function parsePlacementOptions(raw) {
   try {
     return JSON.parse(raw)
   } catch {
+    console.warn('[Casebook widget] Failed to parse PLACEMENT_OPTIONS as JSON', { raw })
     return {}
   }
+}
+
+async function ensureBx24() {
+  if (window.BX24 && typeof window.BX24.callMethod === 'function') {
+    return window.BX24
+  }
+
+  const existingScript = document.querySelector('script[data-bx24-api="1"]')
+  if (!existingScript) {
+    const script = document.createElement('script')
+    script.src = 'https://api.bitrix24.com/api/v1/'
+    script.async = true
+    script.dataset.bx24Api = '1'
+    document.head.appendChild(script)
+  }
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    const tick = () => {
+      if (window.BX24 && typeof window.BX24.callMethod === 'function') {
+        resolve(window.BX24)
+        return
+      }
+      if (Date.now() - startedAt > 5000) {
+        resolve(null)
+        return
+      }
+      setTimeout(tick, 50)
+    }
+    tick()
+  })
 }
 
 async function ensureAuth() {
@@ -107,38 +139,68 @@ async function getEntityCaseNumber() {
   const placement = query.get('PLACEMENT') || ''
   const placementOptions = parsePlacementOptions(query.get('PLACEMENT_OPTIONS'))
   const entityId = query.get('ID') || query.get('ENTITY_ID') || placementOptions.ID || placementOptions.ENTITY_ID
-  if (!entityId) return null
+  if (!entityId) {
+    console.warn('[Casebook widget] Entity ID not found in query/PLACEMENT_OPTIONS', {
+      placement,
+      query: window.location.search,
+      placementOptions,
+    })
+    return null
+  }
 
   const presetCaseNumber = query.get('case_number') || placementOptions.case_number
   if (presetCaseNumber) return presetCaseNumber
 
-  if (!window.BX24 || typeof window.BX24.callMethod !== 'function') return null
+  const bx24 = await ensureBx24()
+  if (!bx24) {
+    console.error('[Casebook widget] BX24 API is unavailable. Cannot load CRM entity fields.')
+    return null
+  }
 
   let method = 'crm.deal.get'
   if (placement.startsWith('CRM_CONTACT_DETAIL')) method = 'crm.contact.get'
   if (placement.startsWith('CRM_COMPANY_DETAIL')) method = 'crm.company.get'
 
   return new Promise((resolve) => {
-    window.BX24.callMethod(method, { id: entityId }, (result) => {
-      if (!result || !result.data) {
-        console.warn('[Casebook widget] BX24.callMethod returned empty result', { method, entityId, result })
-        resolve(null)
-        return
-      }
-      const entity = result.data()
-      try {
-        console.groupCollapsed(`[Casebook widget] ${method} fields for entity ${entityId}`)
-        console.log('Entity payload:', entity)
-        console.log('Entity field keys:', Object.keys(entity || {}))
-        console.log('CASE_NUMBER_FIELDS:', CASE_NUMBER_FIELDS)
-        console.groupEnd()
-      } catch {
-        console.log('[Casebook widget] Entity payload:', entity)
-      }
-      const value = CASE_NUMBER_FIELDS.map((field) => entity[field]).find(Boolean)
-      resolve(typeof value === 'string' ? value.trim() : value || null)
-    })
+    const runCall = () => {
+      bx24.callMethod(method, { id: entityId }, (result) => {
+        if (!result || !result.data) {
+          console.warn('[Casebook widget] BX24.callMethod returned empty result', { method, entityId, result })
+          resolve(null)
+          return
+        }
+        const entity = result.data()
+        try {
+          console.groupCollapsed(`[Casebook widget] ${method} fields for entity ${entityId}`)
+          console.log('Entity payload:', entity)
+          console.log('Entity field keys:', Object.keys(entity || {}))
+          console.log('CASE_NUMBER_FIELDS:', CASE_NUMBER_FIELDS)
+          console.groupEnd()
+        } catch {
+          console.log('[Casebook widget] Entity payload:', entity)
+        }
+        const value = CASE_NUMBER_FIELDS.map((field) => entity[field]).find(Boolean)
+        resolve(typeof value === 'string' ? value.trim() : value || null)
+      })
+    }
+
+    if (typeof bx24.init === 'function') {
+      bx24.init(() => runCall())
+    } else {
+      runCall()
+    }
   })
+}
+
+function logWidgetBootstrap(mode) {
+  if (mode !== 'widget') return
+  const query = getQuery()
+  console.groupCollapsed('[Casebook widget] bootstrap')
+  console.log('Location:', window.location.href)
+  console.log('PLACEMENT:', query.get('PLACEMENT'))
+  console.log('PLACEMENT_OPTIONS(raw):', query.get('PLACEMENT_OPTIONS'))
+  console.log('CASE_NUMBER_FIELDS:', CASE_NUMBER_FIELDS)
+  console.groupEnd()
 }
 
 function HistoryRow({ item, index, showCase = false }) {
@@ -338,6 +400,7 @@ export default function App() {
 
     setMode(isWidget ? 'widget' : 'local')
     if (isWidget) setCompact(true)
+    logWidgetBootstrap(isWidget ? 'widget' : 'local')
 
     ensureAuth()
       .then(t => setToken(t || null))
