@@ -24,7 +24,7 @@ app.add_middleware(
 
 EVENT_TRANSLATIONS = {
     'added': 'Добавлено',
-    'edit': 'Изменено',
+    'changed': 'Изменено',
 }
 
 

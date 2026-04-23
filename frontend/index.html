@@ -3,24 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>История дел Casebook</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>Арбитражные дела — Casebook</title>
   </head>
   <body>
-    <main class="app">
-      <header class="header">
-        <div class="header-title">
-          <h1>История арбитражных дел</h1>
-          <p>Отслеживайте изменения по делам и быстро открывайте карточку в КАД</p>
-        </div>
-        <input id="search" type="text" placeholder="Поиск по номеру дела" />
-      </header>
-      <section>
-        <div id="case-list" class="case-list"></div>
-        <div id="pagination" class="pagination"></div>
-      </section>
-    </main>
-    <script src="config.js"></script>
-    <script src="app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
