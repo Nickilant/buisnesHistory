@@ -161,6 +161,8 @@ docker compose up --build
 
 ## Как использовать как Bitrix24 embedded widget
 
+Важно: в Bitrix URL запуска приложения указывайте backend-route `https://<ваш-домен>/api/bitrix/widget`, а не `https://<ваш-домен>/` (frontend). Иначе при POST-открытии Bitrix можно получить 405.
+
 1. В Bitrix app укажите backend URL для install/uninstall/widget.
 2. Bitrix вызывает:
    - `/bitrix/install` при установке,
