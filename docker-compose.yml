@@ -54,6 +54,7 @@ services:
     build: ./frontend
     environment:
       FRONTEND_API_URL: ${FRONTEND_API_URL:-/api}
+      CASE_NUMBER_FIELDS: ${CASE_NUMBER_FIELDS:-UF_CRM_1708426613594,UF_CRM_CASE_NUMBER,UF_CRM_1699999999,CASE_NUMBER}
     depends_on:
       api:
         condition: service_started

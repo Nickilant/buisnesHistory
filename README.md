@@ -144,6 +144,7 @@ CORS_ALLOW_ORIGINS=*
 
 FRONTEND_URL=http://localhost:8080
 FRONTEND_API_URL=/api
+CASE_NUMBER_FIELDS=UF_CRM_1708426613594,UF_CRM_CASE_NUMBER
 ```
 
 `CORS_ALLOW_ORIGINS` можно оставить `*` для локальной разработки. Для более строгого режима укажите список через запятую, например: `http://localhost:8080,http://127.0.0.1:8080`.
@@ -170,6 +171,7 @@ docker compose up --build
    - `/bitrix/widget` при открытии placement.
 3. `/bitrix/widget` делает redirect на frontend, прокидывая query-параметры.
 4. Frontend выполняет авто-логин через `/auth/bitrix-auto`, получает JWT и работает в iframe.
+5. Для кастомного поля номера дела задайте `CASE_NUMBER_FIELDS` (через запятую), например: `UF_CRM_1708426613594`.
 
 ## Безопасность
 
@@ -299,6 +301,7 @@ ALLOW_LOCAL_DEV_AUTH=false
 CORS_ALLOW_ORIGINS=https://your-domain.com,https://www.your-domain.com
 FRONTEND_URL=https://your-domain.com
 FRONTEND_API_URL=/api
+CASE_NUMBER_FIELDS=UF_CRM_1708426613594,UF_CRM_CASE_NUMBER
 ```
 
 ### 5) Публикация сервисов

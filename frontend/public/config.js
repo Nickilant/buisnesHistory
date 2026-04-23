@@ -1,1 +1,3 @@
 window.__API_URL__ = window.__API_URL__ || '/api'
+
+window.__CASE_NUMBER_FIELDS__ = window.__CASE_NUMBER_FIELDS__ || ['UF_CRM_1708426613594', 'UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
