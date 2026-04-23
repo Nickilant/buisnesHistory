@@ -6,6 +6,14 @@ import './App.css'
 const API_URL = window.__API_URL__ || '/api'
 const PAGE_SIZE = 10
 const CASE_NUMBER_FIELDS = ['UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
+const WIDGET_PLACEMENTS = [
+  'CRM_DEAL_DETAIL',
+  'CRM_DEAL_DETAIL_TAB',
+  'CRM_CONTACT_DETAIL',
+  'CRM_CONTACT_DETAIL_TAB',
+  'CRM_COMPANY_DETAIL',
+  'CRM_COMPANY_DETAIL_TAB',
+]
 
 function getQuery() {
   return new URLSearchParams(window.location.search)
@@ -92,25 +100,30 @@ async function fetchHistory(token, caseId) {
   return apiGet(`/cases/${caseId}/history`, token)
 }
 
-async function getDealCaseNumber() {
+async function getEntityCaseNumber() {
   const query = getQuery()
+  const placement = query.get('PLACEMENT') || ''
   const placementOptions = parsePlacementOptions(query.get('PLACEMENT_OPTIONS'))
-  const dealId = query.get('ID') || query.get('ENTITY_ID') || placementOptions.ID || placementOptions.ENTITY_ID
-  if (!dealId) return null
+  const entityId = query.get('ID') || query.get('ENTITY_ID') || placementOptions.ID || placementOptions.ENTITY_ID
+  if (!entityId) return null
 
   const presetCaseNumber = query.get('case_number') || placementOptions.case_number
   if (presetCaseNumber) return presetCaseNumber
 
   if (!window.BX24 || typeof window.BX24.callMethod !== 'function') return null
 
+  let method = 'crm.deal.get'
+  if (placement.startsWith('CRM_CONTACT_DETAIL')) method = 'crm.contact.get'
+  if (placement.startsWith('CRM_COMPANY_DETAIL')) method = 'crm.company.get'
+
   return new Promise((resolve) => {
-    window.BX24.callMethod('crm.deal.get', { id: dealId }, (result) => {
+    window.BX24.callMethod(method, { id: entityId }, (result) => {
       if (!result || !result.data) {
         resolve(null)
         return
       }
-      const deal = result.data()
-      const value = CASE_NUMBER_FIELDS.map((field) => deal[field]).find(Boolean)
+      const entity = result.data()
+      const value = CASE_NUMBER_FIELDS.map((field) => entity[field]).find(Boolean)
       resolve(typeof value === 'string' ? value.trim() : value || null)
     })
   })
@@ -309,7 +322,7 @@ export default function App() {
   useEffect(() => {
     const query = getQuery()
     const placement = query.get('PLACEMENT') || ''
-    const isWidget = placement.startsWith('CRM_DEAL_DETAIL')
+    const isWidget = WIDGET_PLACEMENTS.some((item) => placement.startsWith(item))
 
     setMode(isWidget ? 'widget' : 'local')
     if (isWidget) setCompact(true)
@@ -319,7 +332,7 @@ export default function App() {
       .catch(() => setToken(null))
 
     if (isWidget) {
-      getDealCaseNumber().then((value) => setWidgetCaseNumber(value || ''))
+      getEntityCaseNumber().then((value) => setWidgetCaseNumber(value || ''))
     }
   }, [])
 
