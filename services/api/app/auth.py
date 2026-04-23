@@ -17,6 +17,9 @@ def create_access_token(payload: dict) -> str:
 
 
 def require_auth(credentials: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+    if settings.allow_local_dev_auth:
+        return {'sub': 'local-dev-user', 'member_id': 'local-dev', 'domain': 'local.test'}
+
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing token')
     try:

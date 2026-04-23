@@ -1,13 +1,23 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from 'lucide-react'
 import './App.css'
 
 const API_URL = window.__API_URL__ || 'http://localhost:8000'
 const PAGE_SIZE = 10
+const CASE_NUMBER_FIELDS = ['UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
 
 function getQuery() {
   return new URLSearchParams(window.location.search)
+}
+
+function parsePlacementOptions(raw) {
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return {}
+  }
 }
 
 async function ensureAuth() {
@@ -17,32 +27,31 @@ async function ensureAuth() {
   const domain = query.get('DOMAIN') || query.get('domain')
 
   let token = localStorage.getItem('access_token')
-  if (!token) {
-    if (memberId && userId) {
-      const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ member_id: memberId, user_id: userId, domain }),
-      })
-      if (resp.ok) {
-        const data = await resp.json()
-        token = data.access_token
-        localStorage.setItem('access_token', token)
-      }
-    }
-    if (!token) {
-      const localResp = await fetch(`${API_URL}/auth/local`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      if (localResp.ok) {
-        const data = await localResp.json()
-        token = data.access_token
-        localStorage.setItem('access_token', token)
-      }
+  if (!token && memberId && userId) {
+    const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member_id: memberId, user_id: userId, domain }),
+    })
+    if (resp.ok) {
+      const data = await resp.json()
+      token = data.access_token
+      localStorage.setItem('access_token', token)
     }
   }
-  if (!token) throw new Error('Нет access token. Для локального запуска включите ALLOW_LOCAL_DEV_AUTH=true.')
+
+  if (!token) {
+    const localResp = await fetch(`${API_URL}/auth/local`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    if (localResp.ok) {
+      const data = await localResp.json()
+      token = data.access_token
+      localStorage.setItem('access_token', token)
+    }
+  }
+
   return token
 }
 
@@ -54,32 +63,72 @@ function formatDate(value) {
   })
 }
 
-async function fetchCases(token, search = '') {
+async function apiGet(path, token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {}
+  const resp = await fetch(`${API_URL}${path}`, { headers })
+  if (!resp.ok) {
+    const body = await resp.text()
+    throw new Error(body || `Ошибка запроса ${path}`)
+  }
+  return resp.json()
+}
+
+async function fetchCases(token, search = '', caseNumber = '') {
+  const params = new URLSearchParams()
+  if (caseNumber) params.set('case_number', caseNumber)
+  else if (search) params.set('search', search)
+  return apiGet(`/cases?${params.toString()}`, token)
+}
+
+async function fetchAllEvents(token, search = '') {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
-  const resp = await fetch(`${API_URL}/cases?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!resp.ok) throw new Error('Ошибка загрузки дел')
-  return resp.json()
+  return apiGet(`/events/history?${params.toString()}`, token)
 }
 
 async function fetchHistory(token, caseId) {
-  const resp = await fetch(`${API_URL}/cases/${caseId}/history`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!resp.ok) throw new Error('Ошибка загрузки истории')
-  return resp.json()
+  return apiGet(`/cases/${caseId}/history`, token)
 }
 
-function HistoryRow({ item, index }) {
+async function getDealCaseNumber() {
+  const query = getQuery()
+  const placementOptions = parsePlacementOptions(query.get('PLACEMENT_OPTIONS'))
+  const dealId = query.get('ID') || query.get('ENTITY_ID') || placementOptions.ID || placementOptions.ENTITY_ID
+  if (!dealId) return null
+
+  const presetCaseNumber = query.get('case_number') || placementOptions.case_number
+  if (presetCaseNumber) return presetCaseNumber
+
+  if (!window.BX24 || typeof window.BX24.callMethod !== 'function') return null
+
+  return new Promise((resolve) => {
+    window.BX24.callMethod('crm.deal.get', { id: dealId }, (result) => {
+      if (!result || !result.data) {
+        resolve(null)
+        return
+      }
+      const deal = result.data()
+      const value = CASE_NUMBER_FIELDS.map((field) => deal[field]).find(Boolean)
+      resolve(typeof value === 'string' ? value.trim() : value || null)
+    })
+  })
+}
+
+function HistoryRow({ item, index, showCase = false }) {
   return (
     <motion.div
-      className="history-row"
+      className={`history-row ${showCase ? 'with-case' : ''}`}
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.055, duration: 0.3, ease: 'easeOut' }}
     >
+      {showCase && (
+        <div className="history-cell">
+          <span className="history-icon"><Scale size={11} /></span>
+          <span className="history-label">Дело</span>
+          <span className="history-value">{item.caseNumber}</span>
+        </div>
+      )}
       <div className="history-cell">
         <span className="history-icon"><Zap size={11} /></span>
         <span className="history-label">Найдено</span>
@@ -242,28 +291,45 @@ function Pagination({ total, current, onChange }) {
 export default function App() {
   const [token, setToken] = useState(null)
   const [cases, setCases] = useState([])
+  const [events, setEvents] = useState([])
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [compact, setCompact] = useState(false)
+  const [widgetCaseNumber, setWidgetCaseNumber] = useState('')
+  const [mode, setMode] = useState('local')
+  const [tab, setTab] = useState('cases')
   const debounceRef = useRef(null)
 
   useEffect(() => {
     const query = getQuery()
     const placement = query.get('PLACEMENT') || ''
-    if (placement.startsWith('CRM_DEAL_DETAIL')) setCompact(true)
+    const isWidget = placement.startsWith('CRM_DEAL_DETAIL')
+
+    setMode(isWidget ? 'widget' : 'local')
+    if (isWidget) setCompact(true)
 
     ensureAuth()
-      .then(t => setToken(t))
-      .catch(e => { setError(e.message); setLoading(false) })
+      .then(t => setToken(t || null))
+      .catch(() => setToken(null))
+
+    if (isWidget) {
+      getDealCaseNumber().then((value) => setWidgetCaseNumber(value || ''))
+    }
   }, [])
 
-  const load = useCallback(async (tok, q) => {
+  const load = useCallback(async (tok, q, currentTab, currentMode, caseNumber) => {
     setLoading(true)
+    setError(null)
     try {
-      const list = await fetchCases(tok, q)
-      setCases(list)
+      if (currentTab === 'events' && currentMode === 'local') {
+        const list = await fetchAllEvents(tok, q)
+        setEvents(list)
+      } else {
+        const list = await fetchCases(tok, q, currentMode === 'widget' ? caseNumber : '')
+        setCases(list)
+      }
       setPage(1)
     } catch (e) {
       setError(e.message)
@@ -272,19 +338,20 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!token) return
-    load(token, '')
-  }, [token, load])
+    if (mode === 'widget' && !widgetCaseNumber) return
+    load(token, search, tab, mode, widgetCaseNumber)
+  }, [token, load, tab, mode, widgetCaseNumber])
 
   const handleSearch = (val) => {
     setSearch(val)
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      if (token) load(token, val)
+      load(token, val, tab, mode, widgetCaseNumber)
     }, 350)
   }
 
-  const visibleCases = cases.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const activeItems = useMemo(() => (tab === 'events' ? events : cases), [tab, events, cases])
+  const visibleItems = activeItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   return (
     <div className={`app-root ${compact ? 'compact' : ''}`}>
@@ -305,9 +372,16 @@ export default function App() {
             </div>
             <div>
               <h1>Арбитражные дела</h1>
-              <p>Мониторинг событий КАД в реальном времени</p>
+              <p>{mode === 'widget' ? 'История по делу из карточки пользователя' : 'Мониторинг событий КАД в реальном времени'}</p>
             </div>
           </div>
+
+          {mode === 'local' && (
+            <div className="tabs">
+              <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => setTab('cases')}>Список дел</button>
+              <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>Общая лента</button>
+            </div>
+          )}
 
           <div className="search-wrap">
             <Search size={14} className="search-icon-el" />
@@ -338,12 +412,16 @@ export default function App() {
               animate={{ opacity: 1 }}
               transition={{ delay: 0.5 }}
             >
-              {cases.length} {cases.length === 1 ? 'дело' : cases.length < 5 ? 'дела' : 'дел'}
+              {activeItems.length} записей
             </motion.div>
           )}
         </motion.header>
 
         <main className="main">
+          {mode === 'widget' && !widgetCaseNumber && !loading && (
+            <div className="error-card">⚠️ Не удалось определить номер дела из карточки. Проверьте поле сделки и/или CASE_NUMBER_FIELDS.</div>
+          )}
+
           {error && (
             <motion.div className="error-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               ⚠️ {error}
@@ -358,7 +436,7 @@ export default function App() {
             </div>
           )}
 
-          {!loading && !error && cases.length === 0 && (
+          {!loading && !error && activeItems.length === 0 && (
             <motion.div className="empty-state" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
               <Scale size={44} strokeWidth={0.8} />
               <p>Ничего не найдено</p>
@@ -366,11 +444,22 @@ export default function App() {
           )}
 
           <AnimatePresence mode="wait">
-            {!loading && !error && visibleCases.length > 0 && (
-              <motion.div key={`page-${page}-${search}`}>
-                {visibleCases.map((item, i) => (
-                  <CaseItem key={item.caseId} item={item} token={token} index={i} />
-                ))}
+            {!loading && !error && visibleItems.length > 0 && (
+              <motion.div key={`page-${page}-${search}-${tab}`}>
+                {tab === 'events'
+                  ? visibleItems.map((item, i) => (
+                    <article key={`${item.caseId}-${i}`} className="case-item">
+                      <div className="history-panel">
+                        <HistoryRow item={item} index={i} showCase />
+                        <a className="case-link timeline-link" href={item.caseLink} target="_blank" rel="noreferrer">
+                          Открыть дело <ExternalLink size={12} />
+                        </a>
+                      </div>
+                    </article>
+                  ))
+                  : visibleItems.map((item, i) => (
+                    <CaseItem key={item.caseId} item={item} token={token} index={i} />
+                  ))}
               </motion.div>
             )}
           </AnimatePresence>
@@ -378,7 +467,7 @@ export default function App() {
 
         {!loading && !error && (
           <Pagination
-            total={cases.length}
+            total={activeItems.length}
             current={page}
             onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
           />
