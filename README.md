@@ -230,9 +230,9 @@ curl -X POST http://localhost:8000/auth/bitrix-auto \
 curl http://localhost:8000/cases -H 'Authorization: Bearer <TOKEN>'
 ```
 
-## Развертывание на Ubuntu сервере (Docker + домен)
+## Развертывание на CentOS Stream 9 сервере (Docker + домен)
 
-Ниже минимально-практичный сценарий для **Ubuntu 22.04/24.04** с уже купленным доменом.
+Ниже минимально-практичный сценарий для **CentOS Stream 9** с уже купленным доменом.
 
 ### 1) Подготовка DNS
 
@@ -249,11 +249,14 @@ dig +short www.your-domain.com
 ### 2) Подготовка сервера
 
 ```bash
-sudo apt update && sudo apt -y upgrade
-sudo apt -y install ca-certificates curl git
+sudo dnf -y update
+sudo dnf -y install curl git ca-certificates dnf-plugins-core
 
-# Docker Engine
-curl -fsSL https://get.docker.com | sudo sh
+# Docker Engine (официальный repo Docker)
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+
 sudo usermod -aG docker $USER
 newgrp docker
 
@@ -316,10 +319,18 @@ docker compose logs -f api
 
 Установите Nginx и Certbot на хосте:
 ```bash
-sudo apt -y install nginx certbot python3-certbot-nginx
+sudo dnf -y install epel-release
+sudo dnf -y install nginx certbot python3-certbot-nginx
+sudo systemctl enable --now nginx
 ```
 
-Пример конфига `/etc/nginx/sites-available/casebook.conf`:
+
+Если включен SELinux (по умолчанию в CentOS 9), разрешите Nginx проксировать на локальные порты Docker:
+```bash
+sudo setsebool -P httpd_can_network_connect 1
+```
+
+Пример конфига `/etc/nginx/conf.d/casebook.conf`:
 
 ```nginx
 server {
@@ -344,18 +355,19 @@ server {
 
 Активируйте сайт и выпустите сертификат:
 ```bash
-sudo ln -s /etc/nginx/sites-available/casebook.conf /etc/nginx/sites-enabled/casebook.conf
 sudo nginx -t
 sudo systemctl reload nginx
 sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 ```
 
-### 7) Firewall
+### 7) Firewall (firewalld)
 
 ```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
-sudo ufw enable
+sudo systemctl enable --now firewalld
+sudo firewall-cmd --permanent --add-service=ssh
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --reload
 ```
 
 ### 8) Обновления релиза
