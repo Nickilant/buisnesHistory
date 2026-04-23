@@ -121,10 +121,20 @@ async function getEntityCaseNumber() {
   return new Promise((resolve) => {
     window.BX24.callMethod(method, { id: entityId }, (result) => {
       if (!result || !result.data) {
+        console.warn('[Casebook widget] BX24.callMethod returned empty result', { method, entityId, result })
         resolve(null)
         return
       }
       const entity = result.data()
+      try {
+        console.groupCollapsed(`[Casebook widget] ${method} fields for entity ${entityId}`)
+        console.log('Entity payload:', entity)
+        console.log('Entity field keys:', Object.keys(entity || {}))
+        console.log('CASE_NUMBER_FIELDS:', CASE_NUMBER_FIELDS)
+        console.groupEnd()
+      } catch {
+        console.log('[Casebook widget] Entity payload:', entity)
+      }
       const value = CASE_NUMBER_FIELDS.map((field) => entity[field]).find(Boolean)
       resolve(typeof value === 'string' ? value.trim() : value || null)
     })
