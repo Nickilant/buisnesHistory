@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     casebook_api_version: str = '2'
     casebook_auth_scheme: str = 'auto'
     page_size: int = 100
+    casebook_retry_attempts: int = 8
+    casebook_retry_base_delay_seconds: float = 2.0
+    casebook_retry_max_delay_seconds: float = 60.0
 
     scheduler_hour_msk: int = 23
     scheduler_minute_msk: int = 50

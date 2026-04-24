@@ -152,6 +152,9 @@ CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
+CASEBOOK_RETRY_ATTEMPTS=8
+CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
+CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 SCHEDULER_HOUR_MSK=23
 SCHEDULER_MINUTE_MSK=50
 FULL_SYNC_SECRET=
@@ -261,6 +264,13 @@ curl -X POST http://localhost:8000/admin/sync/full \
 - проверьте `CASEBOOK_API_KEY`;
 - попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
 
+Если получаете `429 Too Many Requests` от Casebook:
+- это лимит API, updater теперь делает авто-повторы с backoff;
+- при необходимости увеличьте:
+  - `CASEBOOK_RETRY_ATTEMPTS`,
+  - `CASEBOOK_RETRY_BASE_DELAY_SECONDS`,
+  - `CASEBOOK_RETRY_MAX_DELAY_SECONDS`.
+
 Если `POST /admin/sync/full` падает с ошибкой подключения к updater:
 - в Docker Compose используйте `UPDATER_SERVICE_URL=http://updater:8001`;
 - если API запущен локально вне Docker, обычно нужен `UPDATER_SERVICE_URL=http://127.0.0.1:8001`;
@@ -334,6 +344,9 @@ CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
 CASEBOOK_API_VERSION=2
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
+CASEBOOK_RETRY_ATTEMPTS=8
+CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
+CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 SCHEDULER_HOUR_MSK=23
 SCHEDULER_MINUTE_MSK=50
 FULL_SYNC_SECRET=change-me-very-long-secret

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from time import sleep
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -55,6 +56,19 @@ def _build_casebook_headers() -> dict[str, str]:
     return headers
 
 
+def _retry_delay_seconds(attempt: int, retry_after: str | None) -> float:
+    if retry_after:
+        try:
+            value = float(retry_after)
+            if value > 0:
+                return min(value, settings.casebook_retry_max_delay_seconds)
+        except ValueError:
+            pass
+
+    delay = settings.casebook_retry_base_delay_seconds * (2 ** attempt)
+    return min(delay, settings.casebook_retry_max_delay_seconds)
+
+
 def fetch_casebook(start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
@@ -70,21 +84,41 @@ def fetch_casebook(start_date: date | None = None, end_date: date | None = None)
         if offset is not None:
             params['offset'] = offset
 
-        response = requests.get(
-            settings.casebook_api_url,
-            headers=_build_casebook_headers(),
-            params=params,
-            timeout=40,
-        )
-        try:
-            response.raise_for_status()
-        except HTTPError as exc:
-            if response.status_code == 401:
-                raise RuntimeError(
-                    'Casebook вернул 401 Unauthorized. Проверьте CASEBOOK_API_KEY и схему '
-                    'авторизации CASEBOOK_AUTH_SCHEME (auto/apikey/bearer).'
-                ) from exc
-            raise
+        response = None
+        for attempt in range(settings.casebook_retry_attempts + 1):
+            response = requests.get(
+                settings.casebook_api_url,
+                headers=_build_casebook_headers(),
+                params=params,
+                timeout=40,
+            )
+            try:
+                response.raise_for_status()
+                break
+            except HTTPError as exc:
+                if response.status_code == 401:
+                    raise RuntimeError(
+                        'Casebook вернул 401 Unauthorized. Проверьте CASEBOOK_API_KEY и схему '
+                        'авторизации CASEBOOK_AUTH_SCHEME (auto/apikey/bearer).'
+                    ) from exc
+
+                is_retryable = response.status_code == 429 or response.status_code >= 500
+                if is_retryable and attempt < settings.casebook_retry_attempts:
+                    delay = _retry_delay_seconds(attempt, response.headers.get('Retry-After'))
+                    logger.warning(
+                        'Casebook %s для params=%s. Повтор через %.1f сек (попытка %s/%s).',
+                        response.status_code,
+                        params,
+                        delay,
+                        attempt + 1,
+                        settings.casebook_retry_attempts,
+                    )
+                    sleep(delay)
+                    continue
+                raise
+
+        if response is None:
+            raise RuntimeError('Пустой ответ от Casebook API.')
         payload = response.json()
 
         batch = payload.get('items') or []
