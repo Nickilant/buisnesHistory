@@ -431,6 +431,16 @@ function toDateTimeLocalValue(date) {
   return local.toISOString().slice(0, 16)
 }
 
+function applyMidnightDefault(value, previousValue) {
+  if (!value || previousValue) return value
+  const selectedTime = value.slice(11, 16)
+  const currentTime = toDateTimeLocalValue(new Date()).slice(11, 16)
+  if (selectedTime === currentTime) {
+    return `${value.slice(0, 10)}T00:00`
+  }
+  return value
+}
+
 export default function App() {
   const [token, setToken] = useState(null)
   const [cases, setCases] = useState([])
@@ -733,7 +743,7 @@ export default function App() {
                 type="datetime-local"
                 value={dateFrom}
                 onChange={(e) => {
-                  setDateFrom(e.target.value)
+                  setDateFrom(applyMidnightDefault(e.target.value, dateFrom))
                   setPage(1)
                 }}
               />
@@ -745,7 +755,7 @@ export default function App() {
                 type="datetime-local"
                 value={dateTo}
                 onChange={(e) => {
-                  setDateTo(e.target.value)
+                  setDateTo(applyMidnightDefault(e.target.value, dateTo))
                   setPage(1)
                 }}
               />
