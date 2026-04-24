@@ -84,6 +84,7 @@
 - загружает все доступные события из API **без dateFrom/dateTo**;
 - дубли не создаются (идемпотентность через `source_hash` + `content_types` unique constraints);
 - endpoint намеренно скрыт: при неверном или пустом секрете возвращает `404`.
+- запуск выполняется **в фоне** (endpoint возвращает ответ сразу, чтобы не ловить 504 на reverse proxy).
 
 ## Telegram-уведомления о синхронизации
 
@@ -256,6 +257,11 @@ curl -X POST http://localhost:8001/sync/full \
 curl -X POST http://localhost:8000/admin/sync/full \
   -H 'Authorization: Bearer <TOKEN>'
 ```
+
+Если получаете `504 Gateway Time-out` на `/api/admin/sync/full`:
+- проверьте, что используется актуальная версия (где `/sync/full` запускает задачу в фоне);
+- увеличьте `proxy_read_timeout`/`proxy_connect_timeout` в Nginx, если в вашей схеме есть долгие синхронные запросы;
+- смотрите логи updater во время запуска: должен появляться `Background full sync started`.
 
 Если получаете `401 Unauthorized` от Casebook:
 - проверьте `CASEBOOK_API_KEY`;

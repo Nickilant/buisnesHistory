@@ -501,6 +501,13 @@ export default function App() {
     try {
       const response = await triggerFullSync(token)
       const stats = response?.result || {}
+      if (typeof stats.started === 'boolean') {
+        setSyncAlert({
+          type: stats.started ? 'success' : 'info',
+          text: stats.message || (stats.started ? 'Полная синхронизация запущена.' : 'Полная синхронизация уже выполняется.'),
+        })
+        return
+      }
       setSyncAlert({
         type: 'success',
         text: `Обновление завершено. Получено: ${stats.fetched ?? 0}, добавлено: ${stats.inserted ?? 0}, обновлено: ${stats.updated ?? 0}, пропущено: ${stats.skipped ?? 0}.`,
