@@ -66,7 +66,7 @@
 
 ## Планировщик
 
-По умолчанию: **каждый день в 11:59 Europe/Moscow**.
+По умолчанию: **каждый день в 23:50 Europe/Moscow**.
 
 Параметры:
 - `SCHEDULER_HOUR_MSK`
@@ -75,6 +75,25 @@
 ## Ручной запуск обновления
 
 `POST http://localhost:8001/sync/manual`
+
+## Полная загрузка (скрытый prod endpoint)
+
+`POST http://localhost:8001/sync/full` с заголовком `X-Full-Sync-Secret: <FULL_SYNC_SECRET>`.
+
+Особенности:
+- загружает все доступные события из API **без dateFrom/dateTo**;
+- дубли не создаются (идемпотентность через `source_hash` + `content_types` unique constraints);
+- endpoint намеренно скрыт: при неверном или пустом секрете возвращает `404`.
+- запуск выполняется **в фоне** (endpoint возвращает ответ сразу, чтобы не ловить 504 на reverse proxy).
+
+## Логирование синхронизации в updater
+
+При запуске синхронизации (плановой/ручной/полной) updater пишет в логи:
+- начало обновления;
+- прогресс загрузки страниц из Casebook (`страница`, `получено_в_странице`, `всего_получено`);
+- прогресс обработки записей в БД (каждые `PROGRESS_LOG_EVERY_ITEMS` элементов);
+- завершение с итоговой статистикой (`fetched`, `inserted`, `updated`, `skipped`);
+- ошибку, если синхронизация упала.
 
 Возвращает статистику:
 - `fetched`
@@ -97,6 +116,7 @@
 - `GET /cases/{caseId}/history`
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
+- `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)
 
 ## Bitrix REST интеграция
 
@@ -117,6 +137,7 @@
 - JWT хранится в `localStorage`.
 - Compact режим для `PLACEMENT=CRM_DEAL_DETAIL*`.
 - Чтение `deal_id` из `PLACEMENT_OPTIONS`.
+- Скрытый триггер полной синхронизации в интерфейсе: 7 кликов по иконке весов в хедере, после чего появляется небольшое alert-окно со статусом запуска/завершения.
 
 ## Запуск локально (Docker Compose)
 
@@ -133,8 +154,15 @@ CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
-SCHEDULER_HOUR_MSK=11
-SCHEDULER_MINUTE_MSK=59
+CASEBOOK_RETRY_ATTEMPTS=8
+CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
+CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
+PROGRESS_LOG_EVERY_ITEMS=500
+SCHEDULER_HOUR_MSK=23
+SCHEDULER_MINUTE_MSK=50
+FULL_SYNC_SECRET=
+
+UPDATER_SERVICE_URL=http://updater:8001
 
 JWT_SECRET=super-secret-change-me
 JWT_ALGORITHM=HS256
@@ -218,9 +246,38 @@ docker compose up --build
 curl -X POST http://localhost:8001/sync/manual
 ```
 
+Полный sync (скрытый, для prod):
+```bash
+curl -X POST http://localhost:8001/sync/full \
+  -H 'X-Full-Sync-Secret: <FULL_SYNC_SECRET>'
+```
+
+Полный sync через API (для фронта):
+```bash
+curl -X POST http://localhost:8000/admin/sync/full \
+  -H 'Authorization: Bearer <TOKEN>'
+```
+
+Если получаете `504 Gateway Time-out` на `/api/admin/sync/full`:
+- проверьте, что используется актуальная версия (где `/sync/full` запускает задачу в фоне);
+- увеличьте `proxy_read_timeout`/`proxy_connect_timeout` в Nginx, если в вашей схеме есть долгие синхронные запросы;
+- смотрите логи updater во время запуска: должен появляться `Background full sync started`.
+
 Если получаете `401 Unauthorized` от Casebook:
 - проверьте `CASEBOOK_API_KEY`;
 - попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
+
+Если получаете `429 Too Many Requests` от Casebook:
+- это лимит API, updater теперь делает авто-повторы с backoff;
+- при необходимости увеличьте:
+  - `CASEBOOK_RETRY_ATTEMPTS`,
+  - `CASEBOOK_RETRY_BASE_DELAY_SECONDS`,
+  - `CASEBOOK_RETRY_MAX_DELAY_SECONDS`.
+
+Если `POST /admin/sync/full` падает с ошибкой подключения к updater:
+- в Docker Compose используйте `UPDATER_SERVICE_URL=http://updater:8001`;
+- если API запущен локально вне Docker, обычно нужен `UPDATER_SERVICE_URL=http://127.0.0.1:8001`;
+- убедитесь, что сервис `updater` действительно поднят и отвечает на `/health`.
 
 Получить token авто-логина:
 ```bash
@@ -290,8 +347,13 @@ CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
 CASEBOOK_API_VERSION=2
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
-SCHEDULER_HOUR_MSK=11
-SCHEDULER_MINUTE_MSK=59
+CASEBOOK_RETRY_ATTEMPTS=8
+CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
+CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
+PROGRESS_LOG_EVERY_ITEMS=500
+SCHEDULER_HOUR_MSK=23
+SCHEDULER_MINUTE_MSK=50
+FULL_SYNC_SECRET=change-me-very-long-secret
 
 JWT_SECRET=very-long-random-secret
 JWT_ALGORITHM=HS256
