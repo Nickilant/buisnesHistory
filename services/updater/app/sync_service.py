@@ -52,16 +52,33 @@ def _build_casebook_headers() -> dict[str, str]:
     return headers
 
 
-def fetch_casebook_day(start_date: datetime.date, end_date: datetime.date) -> list[dict[str, Any]]:
+def _notify_telegram(text: str) -> None:
+    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+        return
+
+    try:
+        requests.post(
+            f'https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage',
+            json={'chat_id': settings.telegram_chat_id, 'text': text},
+            timeout=20,
+        ).raise_for_status()
+    except Exception:
+        # Ошибка уведомлений не должна останавливать синхронизацию.
+        pass
+
+
+def fetch_casebook(start_date: datetime.date | None = None, end_date: datetime.date | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
 
     while True:
         params = {
             'size': settings.page_size,
-            'dateFrom': start_date.isoformat(),
-            'dateTo': end_date.isoformat(),
         }
+        if start_date is not None:
+            params['dateFrom'] = start_date.isoformat()
+        if end_date is not None:
+            params['dateTo'] = end_date.isoformat()
         if offset is not None:
             params['offset'] = offset
 
@@ -93,8 +110,7 @@ def fetch_casebook_day(start_date: datetime.date, end_date: datetime.date) -> li
     return items
 
 
-def sync_casebook_range(start_date: datetime.date, end_date: datetime.date) -> dict[str, int]:
-    payload_items = fetch_casebook_day(start_date, end_date)
+def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     inserted = 0
     updated = 0
     skipped = 0
@@ -168,7 +184,32 @@ def sync_casebook_range(start_date: datetime.date, end_date: datetime.date) -> d
     }
 
 
+def sync_casebook_range(start_date: datetime.date, end_date: datetime.date) -> dict[str, int]:
+    payload_items = fetch_casebook(start_date, end_date)
+    return _sync_payload_items(payload_items)
+
+
+def sync_casebook_all() -> dict[str, int]:
+    payload_items = fetch_casebook()
+    return _sync_payload_items(payload_items)
+
+
 def sync_today_and_tomorrow() -> dict[str, int]:
     today_utc = datetime.now(timezone.utc).date()
     tomorrow_utc = today_utc + timedelta(days=1)
     return sync_casebook_range(today_utc, tomorrow_utc)
+
+
+def run_sync_with_telegram(sync_kind: str, runner: Any) -> dict[str, int]:
+    _notify_telegram(f'Начало обновления данных ({sync_kind}).')
+    try:
+        result = runner()
+        _notify_telegram(
+            f'Завершено обновление данных ({sync_kind}). '
+            f'Получено: {result["fetched"]}, добавлено: {result["inserted"]}, '
+            f'обновлено: {result["updated"]}, пропущено: {result["skipped"]}.'
+        )
+        return result
+    except Exception:
+        _notify_telegram(f'Ошибка обновления данных ({sync_kind}).')
+        raise

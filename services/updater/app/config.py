@@ -13,8 +13,13 @@ class Settings(BaseSettings):
     casebook_auth_scheme: str = 'auto'
     page_size: int = 100
 
-    scheduler_hour_msk: int = 11
-    scheduler_minute_msk: int = 59
+    scheduler_hour_msk: int = 23
+    scheduler_minute_msk: int = 50
+
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+
+    full_sync_secret: str | None = None
 
 
 settings = Settings()

@@ -66,7 +66,7 @@
 
 ## Планировщик
 
-По умолчанию: **каждый день в 11:59 Europe/Moscow**.
+По умолчанию: **каждый день в 23:50 Europe/Moscow**.
 
 Параметры:
 - `SCHEDULER_HOUR_MSK`
@@ -75,6 +75,26 @@
 ## Ручной запуск обновления
 
 `POST http://localhost:8001/sync/manual`
+
+## Полная загрузка (скрытый prod endpoint)
+
+`POST http://localhost:8001/sync/full` с заголовком `X-Full-Sync-Secret: <FULL_SYNC_SECRET>`.
+
+Особенности:
+- загружает все доступные события из API **без dateFrom/dateTo**;
+- дубли не создаются (идемпотентность через `source_hash` + `content_types` unique constraints);
+- endpoint намеренно скрыт: при неверном или пустом секрете возвращает `404`.
+
+## Telegram-уведомления о синхронизации
+
+При запуске синхронизации (плановой/ручной/полной) отправляются сообщения:
+- начало обновления;
+- завершение с итоговой статистикой (`fetched`, `inserted`, `updated`, `skipped`);
+- сообщение об ошибке, если синхронизация упала.
+
+Переменные:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 
 Возвращает статистику:
 - `fetched`
@@ -133,8 +153,11 @@ CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
-SCHEDULER_HOUR_MSK=11
-SCHEDULER_MINUTE_MSK=59
+SCHEDULER_HOUR_MSK=23
+SCHEDULER_MINUTE_MSK=50
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+FULL_SYNC_SECRET=
 
 JWT_SECRET=super-secret-change-me
 JWT_ALGORITHM=HS256
@@ -218,6 +241,12 @@ docker compose up --build
 curl -X POST http://localhost:8001/sync/manual
 ```
 
+Полный sync (скрытый, для prod):
+```bash
+curl -X POST http://localhost:8001/sync/full \
+  -H 'X-Full-Sync-Secret: <FULL_SYNC_SECRET>'
+```
+
 Если получаете `401 Unauthorized` от Casebook:
 - проверьте `CASEBOOK_API_KEY`;
 - попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
@@ -290,8 +319,11 @@ CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
 CASEBOOK_API_VERSION=2
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
-SCHEDULER_HOUR_MSK=11
-SCHEDULER_MINUTE_MSK=59
+SCHEDULER_HOUR_MSK=23
+SCHEDULER_MINUTE_MSK=50
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+FULL_SYNC_SECRET=change-me-very-long-secret
 
 JWT_SECRET=very-long-random-secret
 JWT_ALGORITHM=HS256

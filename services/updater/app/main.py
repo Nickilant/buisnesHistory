@@ -1,18 +1,18 @@
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 
 from .config import settings
 from .db import init_db
-from .sync_service import sync_today_and_tomorrow
+from .sync_service import run_sync_with_telegram, sync_casebook_all, sync_today_and_tomorrow
 
 app = FastAPI(title='Casebook Updater Service')
 scheduler = BackgroundScheduler(timezone=ZoneInfo('Europe/Moscow'))
 
 
 def scheduled_sync() -> None:
-    sync_today_and_tomorrow()
+    run_sync_with_telegram('плановое', sync_today_and_tomorrow)
 
 
 @app.on_event('startup')
@@ -43,7 +43,19 @@ def health() -> dict[str, str]:
 @app.post('/sync/manual')
 def run_manual_sync() -> dict:
     try:
-        result = sync_today_and_tomorrow()
+        result = run_sync_with_telegram('ручное (за сегодня и завтра)', sync_today_and_tomorrow)
+        return {'status': 'ok', 'result': result}
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post('/sync/full')
+def run_full_sync(x_full_sync_secret: str | None = Header(default=None)) -> dict:
+    if not settings.full_sync_secret or x_full_sync_secret != settings.full_sync_secret:
+        raise HTTPException(status_code=404, detail='Not found')
+
+    try:
+        result = run_sync_with_telegram('полное (без фильтра по дате)', sync_casebook_all)
         return {'status': 'ok', 'result': result}
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
