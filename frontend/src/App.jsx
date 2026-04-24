@@ -548,10 +548,6 @@ export default function App() {
     const now = toDateTimeLocalValue(new Date())
     if (target === 'from') setDateFrom(now)
     if (target === 'to') setDateTo(now)
-    if (target === 'both') {
-      setDateFrom(now)
-      setDateTo(now)
-    }
     setPage(1)
   }
 
@@ -730,7 +726,6 @@ export default function App() {
               <button type="button" className="range-preset" onClick={() => applyDatePreset('today')}>Сегодня</button>
               <button type="button" className="range-preset" onClick={() => applyDatePreset('last7')}>7 дней</button>
               <button type="button" className="range-preset" onClick={() => applyDatePreset('thisMonth')}>Этот месяц</button>
-              <button type="button" className="range-preset" onClick={() => setNow('both')}>Сейчас в оба</button>
             </div>
             <label className="range-field">
               С
