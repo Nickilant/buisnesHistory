@@ -167,6 +167,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
                 event_db.actual_date = _to_dt(document_obj.get('actualDate'))
                 # Refresh content types
                 event_db.content_types.clear()
+                db.flush()
             else:
                 event_db = DocumentEvent(
                     case_id=case_db.id,
@@ -182,11 +183,15 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
                 inserted += 1
 
             type_name = (document_obj.get('type') or {}).get('name', '').strip()
+            seen_content_type_ids: set[str] = set()
             for ct in content_types:
                 ct_id = ct.get('id')
                 ct_name = ct.get('name')
                 if not ct_id or not ct_name:
                     continue
+                if ct_id in seen_content_type_ids:
+                    continue
+                seen_content_type_ids.add(ct_id)
                 composed_name = f'{type_name} : {ct_name}' if type_name else ct_name
                 db.add(
                     ContentType(
