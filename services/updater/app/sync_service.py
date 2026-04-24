@@ -1,5 +1,7 @@
 import hashlib
 import json
+import logging
+from functools import lru_cache
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -10,6 +12,8 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import Case, ContentType, DocumentEvent, SessionLocal
+
+logger = logging.getLogger(__name__)
 
 
 def _to_dt(value: str | None):
@@ -52,19 +56,52 @@ def _build_casebook_headers() -> dict[str, str]:
     return headers
 
 
+@lru_cache(maxsize=1)
+def _resolve_telegram_chat_id() -> str | None:
+    if settings.telegram_chat_id:
+        return settings.telegram_chat_id
+    if not settings.telegram_bot_token:
+        return None
+
+    try:
+        response = requests.get(
+            f'https://api.telegram.org/bot{settings.telegram_bot_token}/getUpdates',
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        updates = payload.get('result') or []
+        for update in reversed(updates):
+            message = update.get('message') or update.get('channel_post') or {}
+            chat = message.get('chat') or {}
+            chat_id = chat.get('id')
+            if chat_id is not None:
+                return str(chat_id)
+    except Exception:
+        logger.exception('Failed to resolve telegram chat_id via getUpdates')
+
+    return None
+
+
 def _notify_telegram(text: str) -> None:
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+    if not settings.telegram_bot_token:
+        logger.warning('Telegram notifications skipped: TELEGRAM_BOT_TOKEN is not set')
+        return
+
+    chat_id = _resolve_telegram_chat_id()
+    if not chat_id:
+        logger.warning('Telegram notifications skipped: chat_id not found (set TELEGRAM_CHAT_ID or write to bot first)')
         return
 
     try:
         requests.post(
             f'https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage',
-            json={'chat_id': settings.telegram_chat_id, 'text': text},
+            json={'chat_id': chat_id, 'text': text},
             timeout=20,
         ).raise_for_status()
     except Exception:
         # Ошибка уведомлений не должна останавливать синхронизацию.
-        pass
+        logger.exception('Failed to send telegram notification')
 
 
 def fetch_casebook(start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
