@@ -72,6 +72,7 @@ def _retry_delay_seconds(attempt: int, retry_after: str | None) -> float:
 def fetch_casebook(start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
+    page_number = 0
 
     while True:
         params = {
@@ -123,6 +124,13 @@ def fetch_casebook(start_date: date | None = None, end_date: date | None = None)
 
         batch = payload.get('items') or []
         items.extend(batch)
+        page_number += 1
+        logger.info(
+            'Загрузка Casebook: страница=%s, получено_в_странице=%s, всего_получено=%s.',
+            page_number,
+            len(batch),
+            len(items),
+        )
 
         next_offset = payload.get('next')
         if not next_offset:
@@ -136,9 +144,12 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     inserted = 0
     updated = 0
     skipped = 0
+    processed = 0
+    progress_every = max(1, settings.progress_log_every_items)
 
     with SessionLocal() as db:
         for item in payload_items:
+            processed += 1
             case_obj = item.get('eventData', {}).get('case') or {}
             document_obj = item.get('document') or {}
             content_types = document_obj.get('contentTypes') or []
@@ -199,6 +210,16 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
                         content_type_external_id=ct_id,
                         name=composed_name,
                     )
+                )
+
+            if processed % progress_every == 0:
+                logger.info(
+                    'Прогресс обновления: обработано=%s/%s, добавлено=%s, обновлено=%s, пропущено=%s.',
+                    processed,
+                    len(payload_items),
+                    inserted,
+                    updated,
+                    skipped,
                 )
 
         db.commit()

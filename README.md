@@ -90,6 +90,8 @@
 
 При запуске синхронизации (плановой/ручной/полной) updater пишет в логи:
 - начало обновления;
+- прогресс загрузки страниц из Casebook (`страница`, `получено_в_странице`, `всего_получено`);
+- прогресс обработки записей в БД (каждые `PROGRESS_LOG_EVERY_ITEMS` элементов);
 - завершение с итоговой статистикой (`fetched`, `inserted`, `updated`, `skipped`);
 - ошибку, если синхронизация упала.
 
@@ -155,6 +157,7 @@ PAGE_SIZE=100
 CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
+PROGRESS_LOG_EVERY_ITEMS=500
 SCHEDULER_HOUR_MSK=23
 SCHEDULER_MINUTE_MSK=50
 FULL_SYNC_SECRET=
@@ -347,6 +350,7 @@ PAGE_SIZE=100
 CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
+PROGRESS_LOG_EVERY_ITEMS=500
 SCHEDULER_HOUR_MSK=23
 SCHEDULER_MINUTE_MSK=50
 FULL_SYNC_SECRET=change-me-very-long-secret
