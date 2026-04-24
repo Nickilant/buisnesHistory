@@ -235,6 +235,8 @@ def list_cases(search: str | None = None, case_number: str | None = None, _: dic
 @app.get('/events/history')
 def events_history(
     search: str | None = None,
+    case_number: str | None = None,
+    document: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     _: dict = Depends(require_auth),
@@ -249,8 +251,12 @@ def events_history(
                 DocumentEvent.actual_date.desc().nulls_last(),
             )
         )
-        if search:
-            stmt = stmt.where(Case.case_number.ilike(f'%{search}%'))
+        case_search_value = case_number or search
+        if case_search_value:
+            stmt = stmt.where(Case.case_number.ilike(f'%{case_search_value}%'))
+
+        if document:
+            stmt = stmt.where(ContentType.name.ilike(f'%{document}%'))
 
         if date_from:
             try:

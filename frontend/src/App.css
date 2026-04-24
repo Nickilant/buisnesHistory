@@ -234,6 +234,37 @@ body {
   white-space: nowrap;
 }
 
+.page-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.page-size-control select {
+  border: 1px solid var(--border2);
+  border-radius: var(--r-sm);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 8px;
+}
+
+.page-size-input {
+  width: 74px;
+  border: 1px solid var(--border2);
+  border-radius: var(--r-sm);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 8px;
+}
+
 /* ── Case card ───────────────────────────────────────── */
 .case-item {
   background: var(--surface);
