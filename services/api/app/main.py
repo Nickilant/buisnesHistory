@@ -176,6 +176,21 @@ def refresh_bitrix_token(payload: dict, _: dict = Depends(require_auth)):
     return {'status': 'ok'}
 
 
+@app.post('/admin/sync/full')
+def run_full_sync(_: dict = Depends(require_auth)):
+    if not settings.full_sync_secret:
+        raise HTTPException(status_code=404, detail='Not found')
+
+    response = requests.post(
+        f'{settings.updater_service_url.rstrip("/")}/sync/full',
+        headers={'X-Full-Sync-Secret': settings.full_sync_secret},
+        timeout=180,
+    )
+    if not response.ok:
+        raise HTTPException(status_code=502, detail='Не удалось запустить полную синхронизацию')
+    return response.json()
+
+
 @app.get('/cases')
 def list_cases(search: str | None = None, case_number: str | None = None, _: dict = Depends(require_auth)):
     with SessionLocal() as db:

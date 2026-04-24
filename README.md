@@ -117,6 +117,7 @@
 - `GET /cases/{caseId}/history`
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
+- `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)
 
 ## Bitrix REST интеграция
 
@@ -137,6 +138,7 @@
 - JWT хранится в `localStorage`.
 - Compact режим для `PLACEMENT=CRM_DEAL_DETAIL*`.
 - Чтение `deal_id` из `PLACEMENT_OPTIONS`.
+- Скрытый триггер полной синхронизации в интерфейсе: 7 кликов по иконке весов в хедере, после чего появляется небольшое alert-окно со статусом запуска/завершения.
 
 ## Запуск локально (Docker Compose)
 
@@ -158,6 +160,8 @@ SCHEDULER_MINUTE_MSK=50
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 FULL_SYNC_SECRET=
+
+UPDATER_SERVICE_URL=http://updater:8001
 
 JWT_SECRET=super-secret-change-me
 JWT_ALGORITHM=HS256
@@ -245,6 +249,12 @@ curl -X POST http://localhost:8001/sync/manual
 ```bash
 curl -X POST http://localhost:8001/sync/full \
   -H 'X-Full-Sync-Secret: <FULL_SYNC_SECRET>'
+```
+
+Полный sync через API (для фронта):
+```bash
+curl -X POST http://localhost:8000/admin/sync/full \
+  -H 'Authorization: Bearer <TOKEN>'
 ```
 
 Если получаете `401 Unauthorized` от Casebook:

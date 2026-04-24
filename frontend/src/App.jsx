@@ -115,6 +115,23 @@ async function apiGet(path, token) {
   return resp.json()
 }
 
+async function apiPost(path, token, payload = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+  const resp = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    const body = await resp.text()
+    throw new Error(body || `Ошибка запроса ${path}`)
+  }
+  return resp.json()
+}
+
 async function fetchCases(token, search = '', caseNumber = '') {
   const params = new URLSearchParams()
   if (caseNumber) params.set('case_number', caseNumber)
@@ -132,6 +149,10 @@ async function fetchAllEvents(token, search = '', dateFrom = '', dateTo = '') {
 
 async function fetchHistory(token, caseId) {
   return apiGet(`/cases/${caseId}/history`, token)
+}
+
+async function triggerFullSync(token) {
+  return apiPost('/admin/sync/full', token, {})
 }
 
 async function getEntityCaseNumber() {
@@ -393,6 +414,9 @@ export default function App() {
   const [tab, setTab] = useState('cases')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [secretTapCount, setSecretTapCount] = useState(0)
+  const [secretTapStartedAt, setSecretTapStartedAt] = useState(0)
+  const [syncAlert, setSyncAlert] = useState(null)
   const debounceRef = useRef(null)
 
   useEffect(() => {
@@ -462,6 +486,33 @@ export default function App() {
   }, [mode, tab, events, cases, widgetEvents])
   const visibleItems = activeItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
+  const handleSecretSyncTap = async () => {
+    const now = Date.now()
+    const withinWindow = now - secretTapStartedAt < 6000
+    const nextCount = withinWindow ? secretTapCount + 1 : 1
+    setSecretTapStartedAt(withinWindow ? secretTapStartedAt : now)
+    setSecretTapCount(nextCount)
+
+    if (nextCount < 7) return
+    setSecretTapCount(0)
+    setSecretTapStartedAt(0)
+
+    setSyncAlert({ type: 'info', text: 'Запущено обновление всех данных. Это может занять несколько минут.' })
+    try {
+      const response = await triggerFullSync(token)
+      const stats = response?.result || {}
+      setSyncAlert({
+        type: 'success',
+        text: `Обновление завершено. Получено: ${stats.fetched ?? 0}, добавлено: ${stats.inserted ?? 0}, обновлено: ${stats.updated ?? 0}, пропущено: ${stats.skipped ?? 0}.`,
+      })
+    } catch {
+      setSyncAlert({
+        type: 'error',
+        text: 'Не удалось запустить полную синхронизацию. Проверьте права доступа и настройки сервера.',
+      })
+    }
+  }
+
   return (
     <div className={`app-root ${compact ? 'compact' : ''}`}>
       <div className="orb orb1" />
@@ -472,7 +523,9 @@ export default function App() {
         <header className="header">
           <div className="brand">
             <div className="brand-icon">
-              <Scale size={18} strokeWidth={1.5} />
+              <button className="secret-sync-trigger" type="button" onClick={handleSecretSyncTap} aria-label="sync trigger">
+                <Scale size={18} strokeWidth={1.5} />
+              </button>
             </div>
             <div>
               <h1>{mode === 'widget' ? `Арбитражное дело ${widgetCaseNumber || ''}`.trim() : 'Арбитражные дела'}</h1>
@@ -618,6 +671,19 @@ export default function App() {
           />
         )}
       </div>
+      <AnimatePresence>
+        {syncAlert && (
+          <motion.div
+            className={`sync-alert ${syncAlert.type}`}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 14 }}
+          >
+            <span>{syncAlert.text}</span>
+            <button type="button" onClick={() => setSyncAlert(null)}>×</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

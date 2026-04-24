@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     cors_allow_origins: str = '*'
 
     frontend_url: str = 'http://localhost:8080'
+    updater_service_url: str = 'http://updater:8001'
+    full_sync_secret: str | None = None
 
 
 settings = Settings()
