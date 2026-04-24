@@ -4,7 +4,8 @@ import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from '
 import './App.css'
 
 const API_URL = window.__API_URL__ || '/api'
-const PAGE_SIZE = 10
+const DEFAULT_PAGE_SIZE = 10
+const PAGE_SIZE_OPTIONS = [5, 10, 25, 50]
 const CASE_NUMBER_FIELDS = Array.isArray(window.__CASE_NUMBER_FIELDS__)
   ? window.__CASE_NUMBER_FIELDS__
   : ['UF_CRM_1708426613594', 'UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
@@ -139,9 +140,10 @@ async function fetchCases(token, search = '', caseNumber = '') {
   return apiGet(`/cases?${params.toString()}`, token)
 }
 
-async function fetchAllEvents(token, search = '', dateFrom = '', dateTo = '') {
+async function fetchAllEvents(token, caseNumber = '', document = '', dateFrom = '', dateTo = '') {
   const params = new URLSearchParams()
-  if (search) params.set('search', search)
+  if (caseNumber) params.set('case_number', caseNumber)
+  if (document) params.set('document', document)
   if (dateFrom) params.set('date_from', dateFrom)
   if (dateTo) params.set('date_to', dateTo)
   return apiGet(`/events/history?${params.toString()}`, token)
@@ -357,9 +359,9 @@ function CaseItem({ item, token, index }) {
   )
 }
 
-function Pagination({ total, current, onChange }) {
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  if (total <= PAGE_SIZE) return null
+function Pagination({ total, current, pageSize, onChange }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  if (total <= pageSize) return null
 
   const pages = []
   for (let i = 1; i <= totalPages; i++) {
@@ -404,7 +406,9 @@ export default function App() {
   const [events, setEvents] = useState([])
   const [widgetEvents, setWidgetEvents] = useState([])
   const [widgetCaseLink, setWidgetCaseLink] = useState('')
-  const [search, setSearch] = useState('')
+  const [caseSearch, setCaseSearch] = useState('')
+  const [documentSearch, setDocumentSearch] = useState('')
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -437,12 +441,12 @@ export default function App() {
     }
   }, [])
 
-  const load = useCallback(async (tok, q, currentTab, currentMode, caseNumber, fromDate, toDate) => {
+  const load = useCallback(async (tok, caseQuery, documentQuery, currentTab, currentMode, caseNumber, fromDate, toDate) => {
     setLoading(true)
     setError(null)
     try {
       if (currentMode === 'widget') {
-        const list = await fetchCases(tok, q, caseNumber)
+        const list = await fetchCases(tok, caseQuery, caseNumber)
         setCases(list)
         const widgetCase = list[0]
         setWidgetCaseLink(widgetCase?.caseLink || '')
@@ -454,10 +458,10 @@ export default function App() {
           setWidgetEvents([])
         }
       } else if (currentTab === 'events' && currentMode === 'local') {
-        const list = await fetchAllEvents(tok, q, fromDate, toDate)
+        const list = await fetchAllEvents(tok, caseQuery, documentQuery, fromDate, toDate)
         setEvents(list)
       } else {
-        const list = await fetchCases(tok, q, '')
+        const list = await fetchCases(tok, caseQuery, '')
         setCases(list)
       }
       setPage(1)
@@ -469,22 +473,31 @@ export default function App() {
 
   useEffect(() => {
     if (mode === 'widget' && !widgetCaseNumber) return
-    load(token, search, tab, mode, widgetCaseNumber, dateFrom, dateTo)
+    load(token, caseSearch, documentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo)
   }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo])
 
-  const handleSearch = (val) => {
-    setSearch(val)
+  const debounceLoad = (nextCaseSearch, nextDocumentSearch) => {
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      load(token, val, tab, mode, widgetCaseNumber, dateFrom, dateTo)
+      load(token, nextCaseSearch, nextDocumentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo)
     }, 350)
+  }
+
+  const handleCaseSearch = (val) => {
+    setCaseSearch(val)
+    debounceLoad(val, documentSearch)
+  }
+
+  const handleDocumentSearch = (val) => {
+    setDocumentSearch(val)
+    debounceLoad(caseSearch, val)
   }
 
   const activeItems = useMemo(() => {
     if (mode === 'widget') return widgetEvents
     return tab === 'events' ? events : cases
   }, [mode, tab, events, cases, widgetEvents])
-  const visibleItems = activeItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const visibleItems = activeItems.slice((page - 1) * pageSize, page * pageSize)
 
   const handleSecretSyncTap = async () => {
     const now = Date.now()
@@ -551,38 +564,80 @@ export default function App() {
           </div>
 
           {mode === 'local' && (
-            <div className="tabs">
-              <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => setTab('cases')}>Список дел</button>
-              <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>Общая лента</button>
-            </div>
-          )}
-
-          {mode === 'local' && (
-            <>
-              <div className="search-wrap">
-                <Search size={14} className="search-icon-el" />
-                <input
-                  className="search-input"
-                  type="text"
-                  value={search}
-                  onChange={e => handleSearch(e.target.value)}
-                  placeholder="Поиск по номеру дела…"
-                />
-                <AnimatePresence>
-                  {search && (
-                    <motion.button
-                      className="search-clear"
-                      initial={{ opacity: 0, scale: 0.6 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.6 }}
-                      onClick={() => handleSearch('')}
-                    >×</motion.button>
-                  )}
-                </AnimatePresence>
+            <div className="local-controls">
+              <div className="tabs">
+                <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => setTab('cases')}>Список дел</button>
+                <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>Общая лента</button>
               </div>
 
-              <div className="cases-count">{activeItems.length} записей</div>
-            </>
+              <div className="search-row">
+                <div className="search-wrap">
+                  <Search size={14} className="search-icon-el" />
+                  <input
+                    className="search-input"
+                    type="text"
+                    value={caseSearch}
+                    onChange={e => handleCaseSearch(e.target.value)}
+                    placeholder="Поиск по номеру дела…"
+                  />
+                  <AnimatePresence>
+                    {caseSearch && (
+                      <motion.button
+                        className="search-clear"
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.6 }}
+                        onClick={() => handleCaseSearch('')}
+                      >×</motion.button>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {tab === 'events' && (
+                  <div className="search-wrap">
+                    <Search size={14} className="search-icon-el" />
+                    <input
+                      className="search-input"
+                      type="text"
+                      value={documentSearch}
+                      onChange={e => handleDocumentSearch(e.target.value)}
+                      placeholder="Поиск по документу…"
+                    />
+                    <AnimatePresence>
+                      {documentSearch && (
+                        <motion.button
+                          className="search-clear"
+                          initial={{ opacity: 0, scale: 0.6 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.6 }}
+                          onClick={() => handleDocumentSearch('')}
+                        >×</motion.button>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+              </div>
+
+              <div className="meta-row">
+                <label className="page-size-control">
+                  На странице
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      const nextSize = Number(e.target.value)
+                      setPageSize(nextSize)
+                      setPage(1)
+                    }}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((sizeOption) => (
+                      <option key={sizeOption} value={sizeOption}>{sizeOption}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="cases-count">{activeItems.length} записей</div>
+              </div>
+            </div>
           )}
         </header>
 
@@ -642,7 +697,7 @@ export default function App() {
 
           <AnimatePresence mode="wait">
             {!loading && !error && visibleItems.length > 0 && (
-              <motion.div key={`page-${page}-${search}-${tab}`}>
+              <motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${tab}-${pageSize}`}>
                 {tab === 'events'
                   ? visibleItems.map((item, i) => (
                     <article key={`${item.caseId}-${i}`} className="case-item">
@@ -674,6 +729,7 @@ export default function App() {
           <Pagination
             total={activeItems.length}
             current={page}
+            pageSize={pageSize}
             onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
           />
         )}
