@@ -13,7 +13,7 @@ from sqlalchemy import select
 from .config import settings
 from .db import Case, ContentType, DocumentEvent, SessionLocal
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('uvicorn.error')
 
 
 def _to_dt(value: str | None):

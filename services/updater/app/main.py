@@ -11,7 +11,7 @@ from .sync_service import run_sync_with_logging, sync_casebook_all, sync_today_a
 
 app = FastAPI(title='Casebook Updater Service')
 scheduler = BackgroundScheduler(timezone=ZoneInfo('Europe/Moscow'))
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('uvicorn.error')
 _full_sync_lock = Lock()
 _full_sync_running = False
 
