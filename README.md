@@ -143,7 +143,8 @@ ALLOW_LOCAL_DEV_AUTH=true
 CORS_ALLOW_ORIGINS=*
 
 FRONTEND_URL=http://localhost:8080
-FRONTEND_API_URL=http://localhost:8000
+FRONTEND_API_URL=/api
+CASE_NUMBER_FIELDS=UF_CRM_1708426613594,UF_CRM_CASE_NUMBER
 ```
 
 `CORS_ALLOW_ORIGINS` можно оставить `*` для локальной разработки. Для более строгого режима укажите список через запятую, например: `http://localhost:8080,http://127.0.0.1:8080`.
@@ -161,6 +162,8 @@ docker compose up --build
 
 ## Как использовать как Bitrix24 embedded widget
 
+Важно: в Bitrix URL запуска приложения указывайте backend-route `https://<ваш-домен>/api/bitrix/widget`, а не `https://<ваш-домен>/` (frontend). Иначе при POST-открытии Bitrix можно получить 405.
+
 1. В Bitrix app укажите backend URL для install/uninstall/widget.
 2. Bitrix вызывает:
    - `/bitrix/install` при установке,
@@ -168,6 +171,7 @@ docker compose up --build
    - `/bitrix/widget` при открытии placement.
 3. `/bitrix/widget` делает redirect на frontend, прокидывая query-параметры.
 4. Frontend выполняет авто-логин через `/auth/bitrix-auto`, получает JWT и работает в iframe.
+5. Для кастомного поля номера дела задайте `CASE_NUMBER_FIELDS` (через запятую), например: `UF_CRM_1708426613594`.
 
 ## Безопасность
 
@@ -229,3 +233,160 @@ curl -X POST http://localhost:8000/auth/bitrix-auto \
 ```bash
 curl http://localhost:8000/cases -H 'Authorization: Bearer <TOKEN>'
 ```
+
+## Развертывание на CentOS Stream 9 сервере (Docker + домен)
+
+Ниже минимально-практичный сценарий для **CentOS Stream 9** с уже купленным доменом.
+
+### 1) Подготовка DNS
+
+У регистратора домена создайте записи:
+- `A` запись `@` → `PUBLIC_SERVER_IP`
+- `A` запись `www` → `PUBLIC_SERVER_IP` (опционально)
+
+Проверка:
+```bash
+dig +short your-domain.com
+dig +short www.your-domain.com
+```
+
+### 2) Подготовка сервера
+
+```bash
+sudo dnf -y update
+sudo dnf -y install curl git ca-certificates dnf-plugins-core
+
+# Docker Engine (официальный repo Docker)
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Docker Compose plugin
+docker compose version
+```
+
+### 3) Клонирование проекта
+
+```bash
+git clone <YOUR_REPO_URL> /opt/casebook
+cd /opt/casebook
+```
+
+### 4) Продакшн `.env`
+
+Создайте файл `.env` в корне проекта (важные отличия от локальной разработки):
+
+```env
+POSTGRES_DB=casebook
+POSTGRES_USER=app
+POSTGRES_PASSWORD=strong_password_here
+DATABASE_URL=postgresql+psycopg2://app:strong_password_here@postgres:5432/casebook
+
+CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
+CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
+CASEBOOK_API_VERSION=2
+CASEBOOK_AUTH_SCHEME=auto
+PAGE_SIZE=100
+SCHEDULER_HOUR_MSK=11
+SCHEDULER_MINUTE_MSK=59
+
+JWT_SECRET=very-long-random-secret
+JWT_ALGORITHM=HS256
+JWT_EXP_MINUTES=720
+ALLOW_LOCAL_DEV_AUTH=false
+
+CORS_ALLOW_ORIGINS=https://your-domain.com,https://www.your-domain.com
+FRONTEND_URL=https://your-domain.com
+FRONTEND_API_URL=/api
+CASE_NUMBER_FIELDS=UF_CRM_1708426613594,UF_CRM_CASE_NUMBER
+```
+
+### 5) Публикация сервисов
+
+```bash
+docker compose up -d --build
+```
+
+Проверка контейнеров:
+```bash
+docker compose ps
+docker compose logs -f api
+```
+
+### 6) Reverse proxy (Nginx) + HTTPS (Let's Encrypt)
+
+Обычно в проде удобнее отдавать трафик так:
+- `https://your-domain.com/` → `frontend-service:80`
+- `https://your-domain.com/api/` → `api-service:8000`
+
+Установите Nginx и Certbot на хосте:
+```bash
+sudo dnf -y install epel-release
+sudo dnf -y install nginx certbot python3-certbot-nginx
+sudo systemctl enable --now nginx
+```
+
+
+Если включен SELinux (по умолчанию в CentOS 9), разрешите Nginx проксировать на локальные порты Docker:
+```bash
+sudo setsebool -P httpd_can_network_connect 1
+```
+
+Пример конфига `/etc/nginx/conf.d/casebook.conf`:
+
+```nginx
+server {
+    server_name your-domain.com www.your-domain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/ {
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Активируйте сайт и выпустите сертификат:
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot --nginx -d your-domain.com -d www.your-domain.com
+```
+
+### 7) Firewall (firewalld)
+
+```bash
+sudo systemctl enable --now firewalld
+sudo firewall-cmd --permanent --add-service=ssh
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --reload
+```
+
+### 8) Обновления релиза
+
+```bash
+cd /opt/casebook
+git pull
+docker compose up -d --build
+```
+
+### 9) Что проверить после деплоя
+
+- `https://your-domain.com` открывает UI.
+- `https://your-domain.com/api/health` возвращает `{"status":"ok"}`.
+- В `.env` обязательно `ALLOW_LOCAL_DEV_AUTH=false` в проде.
+- В Bitrix app URL виджета указывать на backend route `/bitrix/widget` вашего домена.
+- Если фронт всё равно стучится в `localhost:8000`, проверьте значение `FRONTEND_API_URL` в контейнере `frontend` и очистите кэш браузера (файл `/config.js` мог закэшироваться).

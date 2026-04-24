@@ -1,13 +1,65 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from 'lucide-react'
 import './App.css'
 
-const API_URL = window.__API_URL__ || 'http://localhost:8000'
+const API_URL = window.__API_URL__ || '/api'
 const PAGE_SIZE = 10
+const CASE_NUMBER_FIELDS = Array.isArray(window.__CASE_NUMBER_FIELDS__)
+  ? window.__CASE_NUMBER_FIELDS__
+  : ['UF_CRM_1708426613594', 'UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
+const WIDGET_PLACEMENTS = [
+  'CRM_DEAL_DETAIL',
+  'CRM_DEAL_DETAIL_TAB',
+  'CRM_CONTACT_DETAIL',
+  'CRM_CONTACT_DETAIL_TAB',
+  'CRM_COMPANY_DETAIL',
+  'CRM_COMPANY_DETAIL_TAB',
+]
 
 function getQuery() {
   return new URLSearchParams(window.location.search)
+}
+
+function parsePlacementOptions(raw) {
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    console.warn('[Casebook widget] Failed to parse PLACEMENT_OPTIONS as JSON', { raw })
+    return {}
+  }
+}
+
+async function ensureBx24() {
+  if (window.BX24 && typeof window.BX24.callMethod === 'function') {
+    return window.BX24
+  }
+
+  const existingScript = document.querySelector('script[data-bx24-api="1"]')
+  if (!existingScript) {
+    const script = document.createElement('script')
+    script.src = 'https://api.bitrix24.com/api/v1/'
+    script.async = true
+    script.dataset.bx24Api = '1'
+    document.head.appendChild(script)
+  }
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    const tick = () => {
+      if (window.BX24 && typeof window.BX24.callMethod === 'function') {
+        resolve(window.BX24)
+        return
+      }
+      if (Date.now() - startedAt > 5000) {
+        resolve(null)
+        return
+      }
+      setTimeout(tick, 50)
+    }
+    tick()
+  })
 }
 
 async function ensureAuth() {
@@ -17,32 +69,31 @@ async function ensureAuth() {
   const domain = query.get('DOMAIN') || query.get('domain')
 
   let token = localStorage.getItem('access_token')
-  if (!token) {
-    if (memberId && userId) {
-      const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ member_id: memberId, user_id: userId, domain }),
-      })
-      if (resp.ok) {
-        const data = await resp.json()
-        token = data.access_token
-        localStorage.setItem('access_token', token)
-      }
-    }
-    if (!token) {
-      const localResp = await fetch(`${API_URL}/auth/local`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      if (localResp.ok) {
-        const data = await localResp.json()
-        token = data.access_token
-        localStorage.setItem('access_token', token)
-      }
+  if (!token && memberId && userId) {
+    const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member_id: memberId, user_id: userId, domain }),
+    })
+    if (resp.ok) {
+      const data = await resp.json()
+      token = data.access_token
+      localStorage.setItem('access_token', token)
     }
   }
-  if (!token) throw new Error('Нет access token. Для локального запуска включите ALLOW_LOCAL_DEV_AUTH=true.')
+
+  if (!token) {
+    const localResp = await fetch(`${API_URL}/auth/local`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    if (localResp.ok) {
+      const data = await localResp.json()
+      token = data.access_token
+      localStorage.setItem('access_token', token)
+    }
+  }
+
   return token
 }
 
@@ -54,32 +105,119 @@ function formatDate(value) {
   })
 }
 
-async function fetchCases(token, search = '') {
+async function apiGet(path, token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {}
+  const resp = await fetch(`${API_URL}${path}`, { headers })
+  if (!resp.ok) {
+    const body = await resp.text()
+    throw new Error(body || `Ошибка запроса ${path}`)
+  }
+  return resp.json()
+}
+
+async function fetchCases(token, search = '', caseNumber = '') {
+  const params = new URLSearchParams()
+  if (caseNumber) params.set('case_number', caseNumber)
+  else if (search) params.set('search', search)
+  return apiGet(`/cases?${params.toString()}`, token)
+}
+
+async function fetchAllEvents(token, search = '', dateFrom = '', dateTo = '') {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
-  const resp = await fetch(`${API_URL}/cases?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!resp.ok) throw new Error('Ошибка загрузки дел')
-  return resp.json()
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
+  return apiGet(`/events/history?${params.toString()}`, token)
 }
 
 async function fetchHistory(token, caseId) {
-  const resp = await fetch(`${API_URL}/cases/${caseId}/history`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!resp.ok) throw new Error('Ошибка загрузки истории')
-  return resp.json()
+  return apiGet(`/cases/${caseId}/history`, token)
 }
 
-function HistoryRow({ item, index }) {
+async function getEntityCaseNumber() {
+  const query = getQuery()
+  const placement = query.get('PLACEMENT') || ''
+  const placementOptions = parsePlacementOptions(query.get('PLACEMENT_OPTIONS'))
+  const entityId = query.get('ID') || query.get('ENTITY_ID') || placementOptions.ID || placementOptions.ENTITY_ID
+  if (!entityId) {
+    console.warn('[Casebook widget] Entity ID not found in query/PLACEMENT_OPTIONS', {
+      placement,
+      query: window.location.search,
+      placementOptions,
+    })
+    return null
+  }
+
+  const presetCaseNumber = query.get('case_number') || placementOptions.case_number
+  if (presetCaseNumber) return presetCaseNumber
+
+  const bx24 = await ensureBx24()
+  if (!bx24) {
+    console.error('[Casebook widget] BX24 API is unavailable. Cannot load CRM entity fields.')
+    return null
+  }
+
+  let method = 'crm.deal.get'
+  if (placement.startsWith('CRM_CONTACT_DETAIL')) method = 'crm.contact.get'
+  if (placement.startsWith('CRM_COMPANY_DETAIL')) method = 'crm.company.get'
+
+  return new Promise((resolve) => {
+    const runCall = () => {
+      bx24.callMethod(method, { id: entityId }, (result) => {
+        if (!result || !result.data) {
+          console.warn('[Casebook widget] BX24.callMethod returned empty result', { method, entityId, result })
+          resolve(null)
+          return
+        }
+        const entity = result.data()
+        try {
+          console.groupCollapsed(`[Casebook widget] ${method} fields for entity ${entityId}`)
+          console.log('Entity payload:', entity)
+          console.log('Entity field keys:', Object.keys(entity || {}))
+          console.log('CASE_NUMBER_FIELDS:', CASE_NUMBER_FIELDS)
+          console.groupEnd()
+        } catch {
+          console.log('[Casebook widget] Entity payload:', entity)
+        }
+        const value = CASE_NUMBER_FIELDS.map((field) => entity[field]).find(Boolean)
+        resolve(typeof value === 'string' ? value.trim() : value || null)
+      })
+    }
+
+    if (typeof bx24.init === 'function') {
+      bx24.init(() => runCall())
+    } else {
+      runCall()
+    }
+  })
+}
+
+function logWidgetBootstrap(mode) {
+  if (mode !== 'widget') return
+  const query = getQuery()
+  console.groupCollapsed('[Casebook widget] bootstrap')
+  console.log('Location:', window.location.href)
+  console.log('PLACEMENT:', query.get('PLACEMENT'))
+  console.log('PLACEMENT_OPTIONS(raw):', query.get('PLACEMENT_OPTIONS'))
+  console.log('CASE_NUMBER_FIELDS:', CASE_NUMBER_FIELDS)
+  console.groupEnd()
+}
+
+function HistoryRow({ item, index, showCase = false }) {
   return (
     <motion.div
-      className="history-row"
+      className={`history-row ${showCase ? 'with-case' : ''}`}
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.055, duration: 0.3, ease: 'easeOut' }}
     >
+      {showCase && (
+        <div className="history-cell">
+          <span className="history-icon"><Scale size={11} /></span>
+          <span className="history-label">Дело</span>
+          <span className="history-value">{item.caseNumber}</span>
+        </div>
+      )}
       <div className="history-cell">
         <span className="history-icon"><Zap size={11} /></span>
         <span className="history-label">Найдено</span>
@@ -242,28 +380,62 @@ function Pagination({ total, current, onChange }) {
 export default function App() {
   const [token, setToken] = useState(null)
   const [cases, setCases] = useState([])
+  const [events, setEvents] = useState([])
+  const [widgetEvents, setWidgetEvents] = useState([])
+  const [widgetCaseLink, setWidgetCaseLink] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [compact, setCompact] = useState(false)
+  const [widgetCaseNumber, setWidgetCaseNumber] = useState('')
+  const [mode, setMode] = useState('local')
+  const [tab, setTab] = useState('cases')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const debounceRef = useRef(null)
 
   useEffect(() => {
     const query = getQuery()
     const placement = query.get('PLACEMENT') || ''
-    if (placement.startsWith('CRM_DEAL_DETAIL')) setCompact(true)
+    const isWidget = WIDGET_PLACEMENTS.some((item) => placement.startsWith(item))
+
+    setMode(isWidget ? 'widget' : 'local')
+    if (isWidget) setCompact(true)
+    logWidgetBootstrap(isWidget ? 'widget' : 'local')
 
     ensureAuth()
-      .then(t => setToken(t))
-      .catch(e => { setError(e.message); setLoading(false) })
+      .then(t => setToken(t || null))
+      .catch(() => setToken(null))
+
+    if (isWidget) {
+      getEntityCaseNumber().then((value) => setWidgetCaseNumber(value || ''))
+    }
   }, [])
 
-  const load = useCallback(async (tok, q) => {
+  const load = useCallback(async (tok, q, currentTab, currentMode, caseNumber, fromDate, toDate) => {
     setLoading(true)
+    setError(null)
     try {
-      const list = await fetchCases(tok, q)
-      setCases(list)
+      if (currentMode === 'widget') {
+        const list = await fetchCases(tok, q, caseNumber)
+        setCases(list)
+        const widgetCase = list[0]
+        setWidgetCaseLink(widgetCase?.caseLink || '')
+        if (widgetCase?.caseId) {
+          const history = await fetchHistory(tok, widgetCase.caseId)
+          const sorted = [...history].sort((a, b) => new Date(b.findDate) - new Date(a.findDate))
+          setWidgetEvents(sorted)
+        } else {
+          setWidgetEvents([])
+        }
+      } else if (currentTab === 'events' && currentMode === 'local') {
+        const list = await fetchAllEvents(tok, q, fromDate, toDate)
+        setEvents(list)
+      } else {
+        const list = await fetchCases(tok, q, '')
+        setCases(list)
+      }
       setPage(1)
     } catch (e) {
       setError(e.message)
@@ -272,19 +444,23 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!token) return
-    load(token, '')
-  }, [token, load])
+    if (mode === 'widget' && !widgetCaseNumber) return
+    load(token, search, tab, mode, widgetCaseNumber, dateFrom, dateTo)
+  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo])
 
   const handleSearch = (val) => {
     setSearch(val)
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      if (token) load(token, val)
+      load(token, val, tab, mode, widgetCaseNumber, dateFrom, dateTo)
     }, 350)
   }
 
-  const visibleCases = cases.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const activeItems = useMemo(() => {
+    if (mode === 'widget') return widgetEvents
+    return tab === 'events' ? events : cases
+  }, [mode, tab, events, cases, widgetEvents])
+  const visibleItems = activeItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   return (
     <div className={`app-root ${compact ? 'compact' : ''}`}>
@@ -293,57 +469,96 @@ export default function App() {
       <div className="orb orb3" />
 
       <div className="container">
-        <motion.header
-          className="header"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        >
+        <header className="header">
           <div className="brand">
             <div className="brand-icon">
               <Scale size={18} strokeWidth={1.5} />
             </div>
             <div>
-              <h1>Арбитражные дела</h1>
-              <p>Мониторинг событий КАД в реальном времени</p>
+              <h1>{mode === 'widget' ? `Арбитражное дело ${widgetCaseNumber || ''}`.trim() : 'Арбитражные дела'}</h1>
+              <p>{mode === 'widget' ? 'История по делу из карточки пользователя' : 'Мониторинг событий КАД в реальном времени'}</p>
+              {mode === 'widget' && widgetCaseLink && (
+                <a
+                  className="case-link timeline-link"
+                  href={widgetCaseLink}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Открыть дело в КАД <ExternalLink size={12} />
+                </a>
+              )}
             </div>
           </div>
 
-          <div className="search-wrap">
-            <Search size={14} className="search-icon-el" />
-            <input
-              className="search-input"
-              type="text"
-              value={search}
-              onChange={e => handleSearch(e.target.value)}
-              placeholder="Поиск по номеру дела…"
-            />
-            <AnimatePresence>
-              {search && (
-                <motion.button
-                  className="search-clear"
-                  initial={{ opacity: 0, scale: 0.6 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.6 }}
-                  onClick={() => handleSearch('')}
-                >×</motion.button>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {!loading && !error && (
-            <motion.div
-              className="cases-count"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
-            >
-              {cases.length} {cases.length === 1 ? 'дело' : cases.length < 5 ? 'дела' : 'дел'}
-            </motion.div>
+          {mode === 'local' && (
+            <div className="tabs">
+              <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => setTab('cases')}>Список дел</button>
+              <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>Общая лента</button>
+            </div>
           )}
-        </motion.header>
+
+          {mode === 'local' && (
+            <>
+              <div className="search-wrap">
+                <Search size={14} className="search-icon-el" />
+                <input
+                  className="search-input"
+                  type="text"
+                  value={search}
+                  onChange={e => handleSearch(e.target.value)}
+                  placeholder="Поиск по номеру дела…"
+                />
+                <AnimatePresence>
+                  {search && (
+                    <motion.button
+                      className="search-clear"
+                      initial={{ opacity: 0, scale: 0.6 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.6 }}
+                      onClick={() => handleSearch('')}
+                    >×</motion.button>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="cases-count">{activeItems.length} записей</div>
+            </>
+          )}
+        </header>
+
+        {mode === "local" && tab === "events" && (
+          <section className="range-panel">
+            <label className="range-field">
+              С
+              <input
+                type="datetime-local"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </label>
+            <label className="range-field">
+              По
+              <input
+                type="datetime-local"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="range-reset"
+              onClick={() => { setDateFrom(""); setDateTo(""); }}
+            >
+              Сбросить
+            </button>
+          </section>
+        )}
 
         <main className="main">
+          {mode === 'widget' && !widgetCaseNumber && !loading && (
+            <div className="error-card">⚠️ Не удалось определить номер дела из карточки. Проверьте поле сделки и/или CASE_NUMBER_FIELDS.</div>
+          )}
+
           {error && (
             <motion.div className="error-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               ⚠️ {error}
@@ -358,7 +573,7 @@ export default function App() {
             </div>
           )}
 
-          {!loading && !error && cases.length === 0 && (
+          {!loading && !error && activeItems.length === 0 && (
             <motion.div className="empty-state" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
               <Scale size={44} strokeWidth={0.8} />
               <p>Ничего не найдено</p>
@@ -366,19 +581,38 @@ export default function App() {
           )}
 
           <AnimatePresence mode="wait">
-            {!loading && !error && visibleCases.length > 0 && (
-              <motion.div key={`page-${page}-${search}`}>
-                {visibleCases.map((item, i) => (
-                  <CaseItem key={item.caseId} item={item} token={token} index={i} />
-                ))}
+            {!loading && !error && visibleItems.length > 0 && (
+              <motion.div key={`page-${page}-${search}-${tab}`}>
+                {tab === 'events'
+                  ? visibleItems.map((item, i) => (
+                    <article key={`${item.caseId}-${i}`} className="case-item">
+                      <div className="history-panel">
+                        <HistoryRow item={item} index={i} showCase />
+                        <a className="case-link timeline-link" href={item.caseLink} target="_blank" rel="noreferrer">
+                          Открыть дело <ExternalLink size={12} />
+                        </a>
+                      </div>
+                    </article>
+                  ))
+                  : mode === 'widget'
+                    ? visibleItems.map((item, i) => (
+                      <article key={`${item.caseId || 'widget'}-${i}`} className="case-item">
+                        <div className="history-panel">
+                          <HistoryRow item={item} index={i} />
+                        </div>
+                      </article>
+                    ))
+                    : visibleItems.map((item, i) => (
+                      <CaseItem key={item.caseId} item={item} token={token} index={i} />
+                    ))}
               </motion.div>
             )}
           </AnimatePresence>
         </main>
 
-        {!loading && !error && (
+        {!loading && !error && mode === 'local' && (
           <Pagination
-            total={cases.length}
+            total={activeItems.length}
             current={page}
             onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
           />
