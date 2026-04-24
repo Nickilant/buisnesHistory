@@ -261,6 +261,11 @@ curl -X POST http://localhost:8000/admin/sync/full \
 - проверьте `CASEBOOK_API_KEY`;
 - попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
 
+Если `POST /admin/sync/full` падает с ошибкой подключения к updater:
+- в Docker Compose используйте `UPDATER_SERVICE_URL=http://updater:8001`;
+- если API запущен локально вне Docker, обычно нужен `UPDATER_SERVICE_URL=http://127.0.0.1:8001`;
+- убедитесь, что сервис `updater` действительно поднят и отвечает на `/health`.
+
 Получить token авто-логина:
 ```bash
 curl -X POST http://localhost:8000/auth/bitrix-auto \

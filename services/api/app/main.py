@@ -5,6 +5,7 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from requests import RequestException
 from sqlalchemy import and_, func, select
 
 from .auth import create_access_token, require_auth
@@ -181,11 +182,22 @@ def run_full_sync(_: dict = Depends(require_auth)):
     if not settings.full_sync_secret:
         raise HTTPException(status_code=404, detail='Not found')
 
-    response = requests.post(
-        f'{settings.updater_service_url.rstrip("/")}/sync/full',
-        headers={'X-Full-Sync-Secret': settings.full_sync_secret},
-        timeout=180,
-    )
+    target_url = f'{settings.updater_service_url.rstrip("/")}/sync/full'
+    try:
+        response = requests.post(
+            target_url,
+            headers={'X-Full-Sync-Secret': settings.full_sync_secret},
+            timeout=180,
+        )
+    except RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                'Не удалось подключиться к updater service. '
+                f'Проверьте UPDATER_SERVICE_URL (сейчас: {settings.updater_service_url}).'
+            ),
+        ) from exc
+
     if not response.ok:
         raise HTTPException(status_code=502, detail='Не удалось запустить полную синхронизацию')
     return response.json()
