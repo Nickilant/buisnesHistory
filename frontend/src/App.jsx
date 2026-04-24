@@ -409,7 +409,6 @@ export default function App() {
   const [caseSearch, setCaseSearch] = useState('')
   const [documentSearch, setDocumentSearch] = useState('')
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  const [customPageSize, setCustomPageSize] = useState('')
   const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -565,96 +564,80 @@ export default function App() {
           </div>
 
           {mode === 'local' && (
-            <div className="tabs">
-              <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => setTab('cases')}>Список дел</button>
-              <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>Общая лента</button>
-            </div>
-          )}
-
-          {mode === 'local' && (
-            <>
-              <div className="search-wrap">
-                <Search size={14} className="search-icon-el" />
-                <input
-                  className="search-input"
-                  type="text"
-                  value={caseSearch}
-                  onChange={e => handleCaseSearch(e.target.value)}
-                  placeholder={tab === 'events' ? 'Поиск по номеру дела…' : 'Поиск по номеру дела…'}
-                />
-                <AnimatePresence>
-                  {caseSearch && (
-                    <motion.button
-                      className="search-clear"
-                      initial={{ opacity: 0, scale: 0.6 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.6 }}
-                      onClick={() => handleCaseSearch('')}
-                    >×</motion.button>
-                  )}
-                </AnimatePresence>
+            <div className="local-controls">
+              <div className="tabs">
+                <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => setTab('cases')}>Список дел</button>
+                <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>Общая лента</button>
               </div>
 
-              {tab === 'events' && (
+              <div className="search-row">
                 <div className="search-wrap">
                   <Search size={14} className="search-icon-el" />
                   <input
                     className="search-input"
                     type="text"
-                    value={documentSearch}
-                    onChange={e => handleDocumentSearch(e.target.value)}
-                    placeholder="Поиск по документу…"
+                    value={caseSearch}
+                    onChange={e => handleCaseSearch(e.target.value)}
+                    placeholder="Поиск по номеру дела…"
                   />
                   <AnimatePresence>
-                    {documentSearch && (
+                    {caseSearch && (
                       <motion.button
                         className="search-clear"
                         initial={{ opacity: 0, scale: 0.6 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.6 }}
-                        onClick={() => handleDocumentSearch('')}
+                        onClick={() => handleCaseSearch('')}
                       >×</motion.button>
                     )}
                   </AnimatePresence>
                 </div>
-              )}
 
-              <label className="page-size-control">
-                На странице
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    const nextSize = Number(e.target.value)
-                    setPageSize(nextSize)
-                    setCustomPageSize('')
-                    setPage(1)
-                  }}
-                >
-                  {PAGE_SIZE_OPTIONS.map((sizeOption) => (
-                    <option key={sizeOption} value={sizeOption}>{sizeOption}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  className="page-size-input"
-                  value={customPageSize}
-                  onChange={(e) => {
-                    const value = e.target.value
-                    setCustomPageSize(value)
-                    const parsed = Number(value)
-                    if (Number.isInteger(parsed) && parsed > 0) {
-                      setPageSize(parsed)
+                {tab === 'events' && (
+                  <div className="search-wrap">
+                    <Search size={14} className="search-icon-el" />
+                    <input
+                      className="search-input"
+                      type="text"
+                      value={documentSearch}
+                      onChange={e => handleDocumentSearch(e.target.value)}
+                      placeholder="Поиск по документу…"
+                    />
+                    <AnimatePresence>
+                      {documentSearch && (
+                        <motion.button
+                          className="search-clear"
+                          initial={{ opacity: 0, scale: 0.6 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.6 }}
+                          onClick={() => handleDocumentSearch('')}
+                        >×</motion.button>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+              </div>
+
+              <div className="meta-row">
+                <label className="page-size-control">
+                  На странице
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      const nextSize = Number(e.target.value)
+                      setPageSize(nextSize)
                       setPage(1)
-                    }
-                  }}
-                  placeholder="Свое"
-                />
-              </label>
+                    }}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((sizeOption) => (
+                      <option key={sizeOption} value={sizeOption}>{sizeOption}</option>
+                    ))}
+                  </select>
+                </label>
 
-              <div className="cases-count">{activeItems.length} записей</div>
-            </>
+                <div className="cases-count">{activeItems.length} записей</div>
+              </div>
+            </div>
           )}
         </header>
 
