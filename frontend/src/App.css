@@ -153,6 +153,8 @@ body {
   border: 1px solid var(--border2);
   border-radius: 12px;
   padding: 4px;
+  width: fit-content;
+  align-self: start;
 }
 
 .local-controls {
@@ -594,9 +596,7 @@ body {
   margin-top: 8px;
 }
 
-.compact .tabs {
-  width: 100%;
-}
+.compact .tabs { width: fit-content; }
 
 .compact .tab-btn {
   flex: 1;
