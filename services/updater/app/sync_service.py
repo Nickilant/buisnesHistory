@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -67,7 +67,7 @@ def _notify_telegram(text: str) -> None:
         pass
 
 
-def fetch_casebook(start_date: datetime.date | None = None, end_date: datetime.date | None = None) -> list[dict[str, Any]]:
+def fetch_casebook(start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
 
@@ -184,7 +184,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def sync_casebook_range(start_date: datetime.date, end_date: datetime.date) -> dict[str, int]:
+def sync_casebook_range(start_date: date, end_date: date) -> dict[str, int]:
     payload_items = fetch_casebook(start_date, end_date)
     return _sync_payload_items(payload_items)
 
