@@ -16,9 +16,6 @@ class Settings(BaseSettings):
     scheduler_hour_msk: int = 23
     scheduler_minute_msk: int = 50
 
-    telegram_bot_token: str | None = None
-    telegram_chat_id: str | None = None
-
     full_sync_secret: str | None = None
 
 

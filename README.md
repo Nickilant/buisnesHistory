@@ -86,18 +86,12 @@
 - endpoint намеренно скрыт: при неверном или пустом секрете возвращает `404`.
 - запуск выполняется **в фоне** (endpoint возвращает ответ сразу, чтобы не ловить 504 на reverse proxy).
 
-## Telegram-уведомления о синхронизации
+## Логирование синхронизации в updater
 
-При запуске синхронизации (плановой/ручной/полной) отправляются сообщения:
+При запуске синхронизации (плановой/ручной/полной) updater пишет в логи:
 - начало обновления;
 - завершение с итоговой статистикой (`fetched`, `inserted`, `updated`, `skipped`);
-- сообщение об ошибке, если синхронизация упала.
-
-Переменные:
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-
-Если `TELEGRAM_CHAT_ID` не задан, сервис пытается определить его автоматически через `getUpdates` (берет chat_id из последнего диалога с ботом). Перед этим нужно хотя бы один раз написать боту (`/start`).
+- ошибку, если синхронизация упала.
 
 Возвращает статистику:
 - `fetched`
@@ -160,8 +154,6 @@ CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 SCHEDULER_HOUR_MSK=23
 SCHEDULER_MINUTE_MSK=50
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
 FULL_SYNC_SECRET=
 
 UPDATER_SERVICE_URL=http://updater:8001
@@ -344,8 +336,6 @@ CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 SCHEDULER_HOUR_MSK=23
 SCHEDULER_MINUTE_MSK=50
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
 FULL_SYNC_SECRET=change-me-very-long-secret
 
 JWT_SECRET=very-long-random-secret
