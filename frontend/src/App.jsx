@@ -133,19 +133,23 @@ async function apiPost(path, token, payload = {}) {
   return resp.json()
 }
 
-async function fetchCases(token, search = '', caseNumber = '') {
+async function fetchCasesPage(token, search = '', caseNumber = '', page = 1, pageSize = DEFAULT_PAGE_SIZE) {
   const params = new URLSearchParams()
   if (caseNumber) params.set('case_number', caseNumber)
   else if (search) params.set('search', search)
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
   return apiGet(`/cases?${params.toString()}`, token)
 }
 
-async function fetchAllEvents(token, caseNumber = '', document = '', dateFrom = '', dateTo = '') {
+async function fetchAllEventsPage(token, caseNumber = '', document = '', dateFrom = '', dateTo = '', page = 1, pageSize = DEFAULT_PAGE_SIZE) {
   const params = new URLSearchParams()
   if (caseNumber) params.set('case_number', caseNumber)
   if (document) params.set('document', document)
   if (dateFrom) params.set('date_from', dateFrom)
   if (dateTo) params.set('date_to', dateTo)
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
   return apiGet(`/events/history?${params.toString()}`, token)
 }
 
@@ -400,11 +404,49 @@ function Pagination({ total, current, pageSize, onChange }) {
   )
 }
 
+function normalizePagePayload(payload, fallbackPage, fallbackPageSize) {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      pagination: {
+        total: payload.length,
+        page: fallbackPage,
+        pageSize: fallbackPageSize,
+      },
+    }
+  }
+
+  return {
+    items: payload?.items || [],
+    pagination: {
+      total: payload?.pagination?.total || 0,
+      page: payload?.pagination?.page || fallbackPage,
+      pageSize: payload?.pagination?.pageSize || fallbackPageSize,
+    },
+  }
+}
+
+function toDateTimeLocalValue(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
+}
+
+function applyMidnightDefault(value, previousValue) {
+  if (!value || previousValue) return value
+  const selectedTime = value.slice(11, 16)
+  const currentTime = toDateTimeLocalValue(new Date()).slice(11, 16)
+  if (selectedTime === currentTime) {
+    return `${value.slice(0, 10)}T00:00`
+  }
+  return value
+}
+
 export default function App() {
   const [token, setToken] = useState(null)
   const [cases, setCases] = useState([])
   const [events, setEvents] = useState([])
   const [widgetEvents, setWidgetEvents] = useState([])
+  const [totalItems, setTotalItems] = useState(0)
   const [widgetCaseLink, setWidgetCaseLink] = useState('')
   const [caseSearch, setCaseSearch] = useState('')
   const [documentSearch, setDocumentSearch] = useState('')
@@ -421,6 +463,8 @@ export default function App() {
   const [secretTapCount, setSecretTapCount] = useState(0)
   const [secretTapStartedAt, setSecretTapStartedAt] = useState(0)
   const [syncAlert, setSyncAlert] = useState(null)
+  const [debouncedCaseSearch, setDebouncedCaseSearch] = useState('')
+  const [debouncedDocumentSearch, setDebouncedDocumentSearch] = useState('')
   const debounceRef = useRef(null)
 
   useEffect(() => {
@@ -441,30 +485,37 @@ export default function App() {
     }
   }, [])
 
-  const load = useCallback(async (tok, caseQuery, documentQuery, currentTab, currentMode, caseNumber, fromDate, toDate) => {
+  const load = useCallback(async (tok, caseQuery, documentQuery, currentTab, currentMode, caseNumber, fromDate, toDate, currentPage, currentPageSize) => {
+    if (!tok) return
     setLoading(true)
     setError(null)
     try {
       if (currentMode === 'widget') {
-        const list = await fetchCases(tok, caseQuery, caseNumber)
-        setCases(list)
-        const widgetCase = list[0]
+        const payload = await fetchCasesPage(tok, caseQuery, caseNumber, 1, 1)
+        const normalized = normalizePagePayload(payload, 1, 1)
+        setCases(normalized.items)
+        const widgetCase = normalized.items[0]
         setWidgetCaseLink(widgetCase?.caseLink || '')
         if (widgetCase?.caseId) {
           const history = await fetchHistory(tok, widgetCase.caseId)
           const sorted = [...history].sort((a, b) => new Date(b.findDate) - new Date(a.findDate))
           setWidgetEvents(sorted)
+          setTotalItems(sorted.length)
         } else {
           setWidgetEvents([])
+          setTotalItems(0)
         }
       } else if (currentTab === 'events' && currentMode === 'local') {
-        const list = await fetchAllEvents(tok, caseQuery, documentQuery, fromDate, toDate)
-        setEvents(list)
+        const payload = await fetchAllEventsPage(tok, caseQuery, documentQuery, fromDate, toDate, currentPage, currentPageSize)
+        const normalized = normalizePagePayload(payload, currentPage, currentPageSize)
+        setEvents(normalized.items)
+        setTotalItems(normalized.pagination.total)
       } else {
-        const list = await fetchCases(tok, caseQuery, '')
-        setCases(list)
+        const payload = await fetchCasesPage(tok, caseQuery, '', currentPage, currentPageSize)
+        const normalized = normalizePagePayload(payload, currentPage, currentPageSize)
+        setCases(normalized.items)
+        setTotalItems(normalized.pagination.total)
       }
-      setPage(1)
     } catch (e) {
       setError(e.message)
     }
@@ -472,32 +523,70 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (mode === 'widget' && !widgetCaseNumber) return
-    load(token, caseSearch, documentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo)
-  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo])
-
-  const debounceLoad = (nextCaseSearch, nextDocumentSearch) => {
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      load(token, nextCaseSearch, nextDocumentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo)
+      setDebouncedCaseSearch(caseSearch)
+      setPage(1)
     }, 350)
-  }
+    return () => clearTimeout(debounceRef.current)
+  }, [caseSearch])
 
-  const handleCaseSearch = (val) => {
-    setCaseSearch(val)
-    debounceLoad(val, documentSearch)
-  }
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setDebouncedDocumentSearch(documentSearch)
+      setPage(1)
+    }, 350)
+    return () => clearTimeout(id)
+  }, [documentSearch])
 
-  const handleDocumentSearch = (val) => {
-    setDocumentSearch(val)
-    debounceLoad(caseSearch, val)
-  }
+  useEffect(() => {
+    if (mode === 'widget' && !widgetCaseNumber) return
+    load(token, debouncedCaseSearch, debouncedDocumentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo, page, pageSize)
+  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo, debouncedCaseSearch, debouncedDocumentSearch, page, pageSize])
+
+  const handleCaseSearch = (val) => setCaseSearch(val)
+
+  const handleDocumentSearch = (val) => setDocumentSearch(val)
 
   const activeItems = useMemo(() => {
     if (mode === 'widget') return widgetEvents
     return tab === 'events' ? events : cases
   }, [mode, tab, events, cases, widgetEvents])
-  const visibleItems = activeItems.slice((page - 1) * pageSize, page * pageSize)
+  const visibleItems = mode === 'local' ? activeItems : activeItems.slice((page - 1) * pageSize, page * pageSize)
+
+  const setNow = (target) => {
+    const now = toDateTimeLocalValue(new Date())
+    if (target === 'from') setDateFrom(now)
+    if (target === 'to') setDateTo(now)
+    setPage(1)
+  }
+
+  const applyDatePreset = (preset) => {
+    const now = new Date()
+    let from = ''
+    let to = toDateTimeLocalValue(now)
+
+    if (preset === 'today') {
+      const start = new Date(now)
+      start.setHours(0, 0, 0, 0)
+      from = toDateTimeLocalValue(start)
+    }
+
+    if (preset === 'last7') {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 7)
+      from = toDateTimeLocalValue(start)
+    }
+
+    if (preset === 'thisMonth') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0)
+      from = toDateTimeLocalValue(start)
+    }
+
+    setDateFrom(from)
+    setDateTo(to)
+    setPage(1)
+  }
 
   const handleSecretSyncTap = async () => {
     const now = Date.now()
@@ -566,8 +655,8 @@ export default function App() {
           {mode === 'local' && (
             <div className="local-controls">
               <div className="tabs">
-                <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => setTab('cases')}>Список дел</button>
-                <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>Общая лента</button>
+                <button className={`tab-btn ${tab === 'cases' ? 'active' : ''}`} onClick={() => { setTab('cases'); setPage(1) }}>Список дел</button>
+                <button className={`tab-btn ${tab === 'events' ? 'active' : ''}`} onClick={() => { setTab('events'); setPage(1) }}>Общая лента</button>
               </div>
 
               <div className="search-row">
@@ -625,8 +714,8 @@ export default function App() {
                     value={pageSize}
                     onChange={(e) => {
                       const nextSize = Number(e.target.value)
-                      setPageSize(nextSize)
                       setPage(1)
+                      setPageSize(nextSize)
                     }}
                   >
                     {PAGE_SIZE_OPTIONS.map((sizeOption) => (
@@ -635,7 +724,7 @@ export default function App() {
                   </select>
                 </label>
 
-                <div className="cases-count">{activeItems.length} записей</div>
+                <div className="cases-count">{totalItems} записей</div>
               </div>
             </div>
           )}
@@ -643,26 +732,43 @@ export default function App() {
 
         {mode === "local" && tab === "events" && (
           <section className="range-panel">
+            <div className="range-presets">
+              <button type="button" className="range-preset" onClick={() => applyDatePreset('today')}>Сегодня</button>
+              <button type="button" className="range-preset" onClick={() => applyDatePreset('last7')}>7 дней</button>
+              <button type="button" className="range-preset" onClick={() => applyDatePreset('thisMonth')}>Этот месяц</button>
+            </div>
             <label className="range-field">
               С
               <input
                 type="datetime-local"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(e) => {
+                  setDateFrom(applyMidnightDefault(e.target.value, dateFrom))
+                  setPage(1)
+                }}
               />
+              <button type="button" className="range-now" onClick={() => setNow('from')}>Сейчас</button>
             </label>
             <label className="range-field">
               По
               <input
                 type="datetime-local"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(e) => {
+                  setDateTo(applyMidnightDefault(e.target.value, dateTo))
+                  setPage(1)
+                }}
               />
+              <button type="button" className="range-now" onClick={() => setNow('to')}>Сейчас</button>
             </label>
             <button
               type="button"
               className="range-reset"
-              onClick={() => { setDateFrom(""); setDateTo(""); }}
+              onClick={() => {
+                setDateFrom("")
+                setDateTo("")
+                setPage(1)
+              }}
             >
               Сбросить
             </button>
@@ -727,7 +833,7 @@ export default function App() {
 
         {!loading && !error && mode === 'local' && (
           <Pagination
-            total={activeItems.length}
+            total={totalItems}
             current={page}
             pageSize={pageSize}
             onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}

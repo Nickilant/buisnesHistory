@@ -204,30 +204,48 @@ def run_full_sync(_: dict = Depends(require_auth)):
 
 
 @app.get('/cases')
-def list_cases(search: str | None = None, case_number: str | None = None, _: dict = Depends(require_auth)):
+def list_cases(
+    search: str | None = None,
+    case_number: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: dict = Depends(require_auth),
+):
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    offset = (page - 1) * page_size
+
     with SessionLocal() as db:
-        stmt = (
+        base_stmt = (
             select(Case.external_case_id, Case.case_number, func.max(DocumentEvent.find_date).label('latest'))
             .join(DocumentEvent, DocumentEvent.case_id == Case.id)
             .group_by(Case.external_case_id, Case.case_number)
-            .order_by(Case.case_number.asc())
         )
         if case_number:
-            stmt = stmt.where(Case.case_number == case_number)
+            base_stmt = base_stmt.where(Case.case_number == case_number)
         elif search:
-            stmt = stmt.where(Case.case_number.ilike(f'%{search}%'))
+            base_stmt = base_stmt.where(Case.case_number.ilike(f'%{search}%'))
 
-        rows = db.execute(stmt).all()
+        total = db.execute(select(func.count()).select_from(base_stmt.order_by(None).subquery())).scalar() or 0
+        rows = db.execute(base_stmt.order_by(Case.case_number.asc()).offset(offset).limit(page_size)).all()
 
-    return [
-        {
-            'caseId': row.external_case_id,
-            'caseNumber': row.case_number,
-            'caseLink': f'https://kad.arbitr.ru/Card/{row.external_case_id}',
-            'latestFindDate': row.latest.isoformat() if row.latest else None,
-        }
-        for row in rows
-    ]
+    return {
+        'items': [
+            {
+                'caseId': row.external_case_id,
+                'caseNumber': row.case_number,
+                'caseLink': f'https://kad.arbitr.ru/Card/{row.external_case_id}',
+                'latestFindDate': row.latest.isoformat() if row.latest else None,
+            }
+            for row in rows
+        ],
+        'pagination': {
+            'page': page,
+            'pageSize': page_size,
+            'total': total,
+            'totalPages': max(1, (total + page_size - 1) // page_size),
+        },
+    }
 
 
 
@@ -239,17 +257,19 @@ def events_history(
     document: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
     _: dict = Depends(require_auth),
 ):
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    offset = (page - 1) * page_size
+
     with SessionLocal() as db:
         stmt = (
             select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType)
             .join(DocumentEvent, DocumentEvent.case_id == Case.id)
             .join(ContentType, ContentType.event_id == DocumentEvent.id)
-            .order_by(
-                DocumentEvent.find_date.desc().nulls_last(),
-                DocumentEvent.actual_date.desc().nulls_last(),
-            )
         )
         case_search_value = case_number or search
         if case_search_value:
@@ -276,20 +296,36 @@ def events_history(
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail='Invalid date_to format') from exc
 
-        rows = db.execute(stmt).all()
+        total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0
+        rows = db.execute(
+            stmt.order_by(
+                DocumentEvent.find_date.desc().nulls_last(),
+                DocumentEvent.actual_date.desc().nulls_last(),
+            )
+            .offset(offset)
+            .limit(page_size)
+        ).all()
 
-    return [
-        {
-            'caseId': case_id,
-            'caseNumber': case_number,
-            'caseLink': f'https://kad.arbitr.ru/Card/{case_id}',
-            'findDate': event.find_date.isoformat() if event.find_date else None,
-            'actualDate': event.actual_date.isoformat() if event.actual_date else None,
-            'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
-            'contentTypeName': content.name,
-        }
-        for case_id, case_number, event, content in rows
-    ]
+    return {
+        'items': [
+            {
+                'caseId': case_id,
+                'caseNumber': case_number,
+                'caseLink': f'https://kad.arbitr.ru/Card/{case_id}',
+                'findDate': event.find_date.isoformat() if event.find_date else None,
+                'actualDate': event.actual_date.isoformat() if event.actual_date else None,
+                'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
+                'contentTypeName': content.name,
+            }
+            for case_id, case_number, event, content in rows
+        ],
+        'pagination': {
+            'page': page,
+            'pageSize': page_size,
+            'total': total,
+            'totalPages': max(1, (total + page_size - 1) // page_size),
+        },
+    }
 @app.get('/cases/{case_external_id}/history')
 def case_history(case_external_id: str, _: dict = Depends(require_auth)):
     with SessionLocal() as db:
