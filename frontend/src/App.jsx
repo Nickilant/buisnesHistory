@@ -98,6 +98,31 @@ async function ensureAuth() {
   return token
 }
 
+async function finalizeBitrixInstallIfNeeded() {
+  const query = getQuery()
+  const memberId = query.get('member_id') || query.get('memberId')
+  const installStateKey = memberId ? `bx24_install_finish_${memberId}` : 'bx24_install_finish'
+
+  if (localStorage.getItem(installStateKey) === 'done') return
+
+  const bx24 = await ensureBx24()
+  if (!bx24 || typeof bx24.installFinish !== 'function') return
+
+  return new Promise((resolve) => {
+    const runInstallFinish = () => {
+      bx24.installFinish()
+      localStorage.setItem(installStateKey, 'done')
+      resolve()
+    }
+
+    if (typeof bx24.init === 'function') {
+      bx24.init(() => runInstallFinish())
+    } else {
+      runInstallFinish()
+    }
+  })
+}
+
 function formatDate(value) {
   if (!value) return '—'
   return new Date(value).toLocaleString('ru-RU', {
@@ -475,6 +500,12 @@ export default function App() {
     setMode(isWidget ? 'widget' : 'local')
     if (isWidget) setCompact(true)
     logWidgetBootstrap(isWidget ? 'widget' : 'local')
+
+    if (!isWidget) {
+      finalizeBitrixInstallIfNeeded().catch((err) => {
+        console.warn('[Casebook app] Failed to call BX24.installFinish()', err)
+      })
+    }
 
     ensureAuth()
       .then(t => setToken(t || null))
