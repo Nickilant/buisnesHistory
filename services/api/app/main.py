@@ -88,6 +88,17 @@ async def bitrix_install(request: Request):
         portal.is_active = True
         db.commit()
 
+    should_redirect_to_frontend = any([
+        payload.get('PLACEMENT'),
+        payload.get('user_id'),
+        payload.get('member_id') or payload.get('memberId'),
+        payload.get('DOMAIN') or payload.get('domain'),
+    ])
+
+    if should_redirect_to_frontend:
+        redirect_url = f"{settings.frontend_url}?{urlencode(payload)}" if payload else settings.frontend_url
+        return RedirectResponse(url=redirect_url, status_code=307)
+
     return {'status': 'installed'}
 
 
