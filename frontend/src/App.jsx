@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap, ChevronsDownUp } from 'lucide-react'
+import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from 'lucide-react'
 import './App.css'
 
 const API_URL = window.__API_URL__ || '/api'
@@ -345,12 +345,6 @@ function GroupedHistoryList({ items, showCase = false }) {
           disabled={!hasHidden}
         >
           <HistoryRow item={rep} index={index} showCase={showCase} />
-          {hasHidden && (
-            <span className="history-expand-hint">
-              <ChevronsDownUp size={13} />
-              {expanded ? 'Свернуть историю' : `Развернуть историю (${group.history.length})`}
-            </span>
-          )}
         </button>
         {hasHidden && expanded && (
           <div className="history-doc-expanded">
@@ -911,21 +905,9 @@ export default function App() {
             {!loading && !error && visibleItems.length > 0 && (
               <motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${tab}-${pageSize}`}>
                 {tab === 'events'
-                  ? (
-                    <article className="case-item">
-                      <div className="history-panel">
-                        <GroupedHistoryList items={visibleItems} showCase />
-                      </div>
-                    </article>
-                  )
+                  ? <GroupedHistoryList items={visibleItems} showCase />
                   : mode === 'widget'
-                    ? (
-                      <article className="case-item">
-                        <div className="history-panel">
-                          <GroupedHistoryList items={visibleItems} />
-                        </div>
-                      </article>
-                    )
+                    ? <GroupedHistoryList items={visibleItems} />
                     : visibleItems.map((item, i) => (
                       <CaseItem key={item.caseId} item={item} token={token} index={i} />
                     ))}
