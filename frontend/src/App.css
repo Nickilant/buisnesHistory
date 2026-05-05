@@ -383,11 +383,12 @@ body {
   background: rgba(248,251,255,0.6);
 }
 
+/* ── History row — горизонтальные отступы чтобы текст не прилипал ── */
 .history-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  padding: 10px 0;
+  padding: 10px 14px;
   border-bottom: 1px dashed rgba(180,200,255,0.4);
 }
 .history-row:last-child { border-bottom: none; }
@@ -678,12 +679,13 @@ body {
   }
 }
 
+/* ── Document groups ─────────────────────────────────── */
 .history-doc-group {
   margin-bottom: 10px;
-  overflow: hidden;
   border-radius: var(--r-md);
   background: var(--surface);
   border: 1px solid var(--border2);
+  /* убираем overflow:hidden чтобы padding дочерних элементов не обрезался */
 }
 
 .history-doc-toggle {
@@ -692,6 +694,7 @@ body {
   background: transparent;
   border: none;
   padding: 0;
+  border-radius: var(--r-md);
 }
 
 .history-doc-toggle.expandable {
@@ -699,16 +702,36 @@ body {
 }
 
 .history-doc-toggle.expandable:hover {
-  background: rgba(91,130,245,0.06);
+  background: rgba(91,130,245,0.04);
 }
 
+/* ── Expanded sub-list: визуальное отделение через border-top + accent полоска ── */
 .history-doc-expanded {
-  border-top: 1px solid rgba(180,200,255,0.45);
-  background: rgba(248,251,255,0.75);
-  padding: 0 10px 8px;
+  border-top: 2px solid rgba(91,130,245,0.18);
+  background: rgba(240,245,255,0.55);
+  padding: 4px 0 4px 0;
+  position: relative;
+}
+
+/* Левая акцентная полоска для expanded-блока */
+.history-doc-expanded::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent2) 100%);
+  border-radius: 0 0 0 var(--r-md);
+  opacity: 0.45;
 }
 
 .history-doc-expanded .history-row {
-  border-bottom: 1px solid rgba(180,200,255,0.35);
+  border-bottom: 1px solid rgba(180,200,255,0.3);
   margin: 0;
+  padding-left: 22px; /* чуть больше отступ слева чтобы не налезать на полоску */
+}
+
+.history-doc-expanded .history-row:last-child {
+  border-bottom: none;
 }
