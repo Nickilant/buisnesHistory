@@ -327,6 +327,8 @@ def events_history(
                 'actualDate': event.actual_date.isoformat() if event.actual_date else None,
                 'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
                 'contentTypeName': content.name,
+                'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_id,
+                'documentId': event.document_external_id,
             }
             for case_id, case_number, event, content in rows
         ],
@@ -361,6 +363,8 @@ def case_history(case_external_id: str, _: dict = Depends(require_auth)):
             'actualDate': event.actual_date.isoformat() if event.actual_date else None,
             'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
             'contentTypeName': content.name,
+            'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_external_id,
+            'documentId': event.document_external_id,
         }
         for event, content in rows
     ]
