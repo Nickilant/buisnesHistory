@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from 'lucide-react'
+import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap, ChevronsDownUp } from 'lucide-react'
 import './App.css'
 
 const API_URL = window.__API_URL__ || '/api'
@@ -336,24 +336,34 @@ function GroupedHistoryList({ items, showCase = false }) {
     const expanded = !!expandedKeys[groupKey]
 
     return (
-      <div key={groupKey}>
+      <div key={groupKey} className="history-doc-group">
         <button
           type="button"
-          className="case-row"
+          className={`history-doc-toggle ${hasHidden ? 'expandable' : ''}`}
           onClick={() => hasHidden && toggleKey(groupKey)}
-          style={{ width: '100%', textAlign: 'left', cursor: hasHidden ? 'pointer' : 'default', background: 'transparent', border: 'none', padding: 0 }}
           aria-expanded={expanded}
+          disabled={!hasHidden}
         >
           <HistoryRow item={rep} index={index} showCase={showCase} />
+          {hasHidden && (
+            <span className="history-expand-hint">
+              <ChevronsDownUp size={13} />
+              {expanded ? 'Свернуть историю' : `Развернуть историю (${group.history.length})`}
+            </span>
+          )}
         </button>
-        {hasHidden && expanded && group.history.map((item, childIndex) => (
-          <HistoryRow
-            key={`${groupKey}-${childIndex}`}
-            item={item}
-            index={childIndex}
-            showCase={showCase}
-          />
-        ))}
+        {hasHidden && expanded && (
+          <div className="history-doc-expanded">
+            {group.history.map((item, childIndex) => (
+              <HistoryRow
+                key={`${groupKey}-${childIndex}`}
+                item={item}
+                index={childIndex}
+                showCase={showCase}
+              />
+            ))}
+          </div>
+        )}
       </div>
     )
   })
