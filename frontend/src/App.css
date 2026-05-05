@@ -677,3 +677,38 @@ body {
     width: 100%;
   }
 }
+
+.history-doc-group {
+  margin-bottom: 10px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--border2);
+}
+
+.history-doc-toggle {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.history-doc-toggle.expandable {
+  cursor: pointer;
+}
+
+.history-doc-toggle.expandable:hover {
+  background: rgba(91,130,245,0.06);
+}
+
+.history-doc-expanded {
+  border-top: 1px solid rgba(180,200,255,0.45);
+  background: rgba(248,251,255,0.75);
+  padding: 0 10px 8px;
+}
+
+.history-doc-expanded .history-row {
+  border-bottom: 1px solid rgba(180,200,255,0.35);
+  margin: 0;
+}

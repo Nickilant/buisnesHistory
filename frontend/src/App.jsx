@@ -126,9 +126,35 @@ async function finalizeBitrixInstallIfNeeded() {
 function formatDate(value) {
   if (!value) return '—'
   return new Date(value).toLocaleString('ru-RU', {
+    timeZone: 'Europe/Moscow',
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit'
   })
+}
+
+function normalizeEventType(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function buildDocumentGroups(items) {
+  const groupsMap = new Map()
+
+  items.forEach((item) => {
+    const key = [item.caseId || '', item.contentTypeName || '', item.caseNumber || ''].join('::')
+    if (!groupsMap.has(key)) groupsMap.set(key, [])
+    groupsMap.get(key).push(item)
+  })
+
+  const sortByFindDateDesc = (a, b) => new Date(b.findDate || 0) - new Date(a.findDate || 0)
+
+  return Array.from(groupsMap.values()).map((events) => {
+    const sorted = [...events].sort(sortByFindDateDesc)
+    const added = sorted.find((entry) => normalizeEventType(entry.eventType) === 'добавлено' || normalizeEventType(entry.eventType) === 'added')
+    return {
+      representative: added || sorted[0],
+      history: sorted,
+    }
+  }).sort((a, b) => sortByFindDateDesc(a.representative, b.representative))
 }
 
 async function apiGet(path, token) {
@@ -294,6 +320,49 @@ function HistoryRow({ item, index, showCase = false }) {
   )
 }
 
+
+function GroupedHistoryList({ items, showCase = false }) {
+  const groups = useMemo(() => buildDocumentGroups(items), [items])
+  const [expandedKeys, setExpandedKeys] = useState({})
+
+  const toggleKey = (key) => {
+    setExpandedKeys((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  return groups.map((group, index) => {
+    const rep = group.representative
+    const hasHidden = group.history.length > 1
+    const groupKey = `${rep.caseId || 'no-case'}-${rep.contentTypeName || 'no-doc'}-${index}`
+    const expanded = !!expandedKeys[groupKey]
+
+    return (
+      <div key={groupKey} className="history-doc-group">
+        <button
+          type="button"
+          className={`history-doc-toggle ${hasHidden ? 'expandable' : ''}`}
+          onClick={() => hasHidden && toggleKey(groupKey)}
+          aria-expanded={expanded}
+          disabled={!hasHidden}
+        >
+          <HistoryRow item={rep} index={index} showCase={showCase} />
+        </button>
+        {hasHidden && expanded && (
+          <div className="history-doc-expanded">
+            {group.history.map((item, childIndex) => (
+              <HistoryRow
+                key={`${groupKey}-${childIndex}`}
+                item={item}
+                index={childIndex}
+                showCase={showCase}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  })
+}
+
 function CaseItem({ item, token, index }) {
   const [expanded, setExpanded] = useState(false)
   const [history, setHistory] = useState([])
@@ -377,9 +446,9 @@ function CaseItem({ item, token, index }) {
               {!loading && loaded && history.length === 0 && (
                 <div className="history-empty">История событий пуста</div>
               )}
-              {!loading && history.map((h, i) => (
-                <HistoryRow key={i} item={h} index={i} />
-              ))}
+              {!loading && history.length > 0 && (
+                <GroupedHistoryList items={history} />
+              )}
             </div>
           </motion.div>
         )}
@@ -836,24 +905,9 @@ export default function App() {
             {!loading && !error && visibleItems.length > 0 && (
               <motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${tab}-${pageSize}`}>
                 {tab === 'events'
-                  ? visibleItems.map((item, i) => (
-                    <article key={`${item.caseId}-${i}`} className="case-item">
-                      <div className="history-panel">
-                        <HistoryRow item={item} index={i} showCase />
-                        <a className="case-link timeline-link" href={item.caseLink} target="_blank" rel="noreferrer">
-                          Открыть дело <ExternalLink size={12} />
-                        </a>
-                      </div>
-                    </article>
-                  ))
+                  ? <GroupedHistoryList items={visibleItems} showCase />
                   : mode === 'widget'
-                    ? visibleItems.map((item, i) => (
-                      <article key={`${item.caseId || 'widget'}-${i}`} className="case-item">
-                        <div className="history-panel">
-                          <HistoryRow item={item} index={i} />
-                        </div>
-                      </article>
-                    ))
+                    ? <GroupedHistoryList items={visibleItems} />
                     : visibleItems.map((item, i) => (
                       <CaseItem key={item.caseId} item={item} token={token} index={i} />
                     ))}
