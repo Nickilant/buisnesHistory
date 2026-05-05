@@ -27,7 +27,7 @@
 }
 
 /* ── Reset & Base ────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding-left: 10px; background: rgba(255,255,255,0.55); padding: 12px 18px; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html { scroll-behavior: smooth; }
 
@@ -691,7 +691,7 @@ body {
   text-align: left;
   background: transparent;
   border: none;
-  padding: 12px 18px;
+  padding: 0;
 }
 
 .history-doc-toggle.expandable {
@@ -705,15 +705,10 @@ body {
 .history-doc-expanded {
   border-top: 1px solid rgba(180,200,255,0.45);
   background: rgba(248,251,255,0.75);
-  padding: 8px 12px 10px 18px; margin: 0 12px 12px; border-radius: 8px;
+  padding: 0 10px 8px;
 }
 
 .history-doc-expanded .history-row {
   border-bottom: 1px solid rgba(180,200,255,0.35);
-  margin: 0; padding-left: 10px; background: rgba(255,255,255,0.55);
-}
-
-
-.history-doc-expanded .history-row:first-child {
-  border-top: 1px solid rgba(180,200,255,0.25);
+  margin: 0;
 }
