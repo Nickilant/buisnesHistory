@@ -120,7 +120,7 @@ async function finalizeBitrixInstallIfNeeded() {
 }
 
 function formatDate(value) {
-  if (!value) return '\u2014'
+  if (!value) return '—'
   return new Date(value).toLocaleString('ru-RU', {
     timeZone: 'Europe/Moscow',
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -142,7 +142,7 @@ function buildDocumentGroups(items) {
   const sortByFindDateDesc = (a, b) => new Date(b.findDate || 0) - new Date(a.findDate || 0)
   return Array.from(groupsMap.values()).map((events) => {
     const sorted = [...events].sort(sortByFindDateDesc)
-    const added = sorted.find((entry) => normalizeEventType(entry.eventType) === '\u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e' || normalizeEventType(entry.eventType) === 'added')
+    const added = sorted.find((entry) => normalizeEventType(entry.eventType) === 'добавлено' || normalizeEventType(entry.eventType) === 'added')
     return { representative: added || sorted[0], history: sorted }
   }).sort((a, b) => sortByFindDateDesc(a.representative, b.representative))
 }
@@ -152,7 +152,7 @@ async function apiGet(path, token) {
   const resp = await fetch(`${API_URL}${path}`, { headers })
   if (!resp.ok) {
     const body = await resp.text()
-    throw new Error(body || `\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u043f\u0440\u043e\u0441\u0430 ${path}`)
+    throw new Error(body || `Ошибка запроса ${path}`)
   }
   return resp.json()
 }
@@ -162,7 +162,7 @@ async function apiPost(path, token, payload = {}) {
   const resp = await fetch(`${API_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(payload) })
   if (!resp.ok) {
     const body = await resp.text()
-    throw new Error(body || `\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u043f\u0440\u043e\u0441\u0430 ${path}`)
+    throw new Error(body || `Ошибка запроса ${path}`)
   }
   return resp.json()
 }
@@ -172,7 +172,7 @@ async function apiPatch(path, token, payload = {}) {
   const resp = await fetch(`${API_URL}${path}`, { method: 'PATCH', headers, body: JSON.stringify(payload) })
   if (!resp.ok) {
     const body = await resp.text()
-    throw new Error(body || `\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u043f\u0440\u043e\u0441\u0430 ${path}`)
+    throw new Error(body || `Ошибка запроса ${path}`)
   }
   return resp.json()
 }
@@ -297,28 +297,28 @@ function HistoryRow({ item, index, showCase = false, actions }) {
       {showCase && (
         <div className="history-cell">
           <span className="history-icon"><Scale size={11} /></span>
-          <span className="history-label">\u0414\u0435\u043b\u043e</span>
+          <span className="history-label">Дело</span>
           <span className="history-value">{item.caseNumber}</span>
         </div>
       )}
       <div className="history-cell">
         <span className="history-icon"><Zap size={11} /></span>
-        <span className="history-label">\u041d\u0430\u0439\u0434\u0435\u043d\u043e</span>
+        <span className="history-label">Найдено</span>
         <span className="history-value">{formatDate(item.findDate)}</span>
       </div>
       <div className="history-cell">
         <span className="history-icon"><Clock size={11} /></span>
-        <span className="history-label">\u0410\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u043e \u0434\u043e</span>
+        <span className="history-label">Актуально до</span>
         <span className="history-value">{formatDate(item.actualDate)}</span>
       </div>
       <div className="history-cell">
         <span className="history-icon"><Scale size={11} /></span>
-        <span className="history-label">\u0422\u0438\u043f \u0441\u043e\u0431\u044b\u0442\u0438\u044f</span>
+        <span className="history-label">Тип события</span>
         <span className="history-value">{item.eventType}</span>
       </div>
       <div className="history-cell">
         <span className="history-icon"><FileText size={11} /></span>
-        <span className="history-label">\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442</span>
+        <span className="history-label">Документ</span>
         <span className="history-value">{item.contentTypeName}</span>
       </div>
       {hasActions && (
@@ -345,18 +345,18 @@ function GroupedHistoryList({ items, showCase = false, showProcessingControl = f
     const actions = (showProcessingControl || docLink) ? (
       <div className="row-actions">
         {showProcessingControl && (
-          <label className="processed-toggle" title={rep.isProcessed ? '\u0421\u043d\u044f\u0442\u044c \u043e\u0442\u043c\u0435\u0442\u043a\u0443' : '\u041e\u0442\u043c\u0435\u0442\u0438\u0442\u044c \u043a\u0430\u043a \u043e\u0442\u0440\u0430\u0431\u043e\u0442\u0430\u043d\u043d\u044b\u0439'}>
+          <label className="processed-toggle" title={rep.isProcessed ? 'Снять отметку' : 'Отметить как отработанный'}>
             <input
               type="checkbox"
               checked={!!rep.isProcessed}
               disabled={!rep.documentId || !rep.contentTypeId}
               onChange={(e) => onProcessedChange?.(rep, e.target.checked)}
             />
-            <span className="processed-label">{rep.isProcessed ? '\u041e\u0442\u0440\u0430\u0431\u043e\u0442\u0430\u043d' : '\u041d\u0435 \u043e\u0442\u0440\u0430\u0431\u043e\u0442\u0430\u043d'}</span>
+            <span className="processed-label">{rep.isProcessed ? 'Отработан' : 'Не отработан'}</span>
           </label>
         )}
         {docLink && (
-          <a className="doc-open-btn" href={docLink} target="_blank" rel="noreferrer" title="\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442 \u0432 \u041a\u0410\u0414">
+          <a className="doc-open-btn" href={docLink} target="_blank" rel="noreferrer" title="Открыть документ в КАД">
             <ExternalLink size={13} />
           </a>
         )}
@@ -427,7 +427,7 @@ function CaseItem({ item, token, index }) {
           </div>
         </div>
         <a className="case-link" href={item.caseLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
-          \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0432 \u041a\u0410\u0414 <ExternalLink size={12} />
+          Открыть в КАД <ExternalLink size={12} />
         </a>
         <Motion.span className="chevron" animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.22, ease: 'easeInOut' }}>
           <ChevronDown size={17} />
@@ -441,7 +441,7 @@ function CaseItem({ item, token, index }) {
                 <div className="shimmer-list">{[1,2,3].map(i => <div key={i} className="shimmer-row" />)}</div>
               )}
               {!loading && loaded && history.length === 0 && (
-                <div className="history-empty">\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u0441\u043e\u0431\u044b\u0442\u0438\u0439 \u043f\u0443\u0441\u0442\u0430</div>
+                <div className="history-empty">История событий пуста</div>
               )}
               {!loading && history.length > 0 && <GroupedHistoryList items={history} />}
             </div>
@@ -459,21 +459,21 @@ function Pagination({ total, current, pageSize, onChange }) {
   for (let i = 1; i <= totalPages; i++) {
     if (i === 1 || i === totalPages || (i >= current - 1 && i <= current + 1)) {
       pages.push(i)
-    } else if (pages[pages.length - 1] !== '\u2026') {
-      pages.push('\u2026')
+    } else if (pages[pages.length - 1] !== '…') {
+      pages.push('…')
     }
   }
   return (
     <Motion.div className="pagination" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
-      <button className="pager-btn" disabled={current === 1} onClick={() => onChange(current - 1)}>\u2190</button>
+      <button className="pager-btn" disabled={current === 1} onClick={() => onChange(current - 1)}>←</button>
       <div className="pager-pills">
         {pages.map((p, i) =>
-          p === '\u2026'
-            ? <span key={`e${i}`} className="pager-ellipsis">\u2026</span>
+          p === '…'
+            ? <span key={`e${i}`} className="pager-ellipsis">…</span>
             : <button key={p} className={`pager-pill${p === current ? ' active' : ''}`} onClick={() => onChange(p)}>{p}</button>
         )}
       </div>
-      <button className="pager-btn" disabled={current === totalPages} onClick={() => onChange(current + 1)}>\u2192</button>
+      <button className="pager-btn" disabled={current === totalPages} onClick={() => onChange(current + 1)}>→</button>
     </Motion.div>
   )
 }
@@ -657,17 +657,17 @@ export default function App() {
     if (nextCount < 7) return
     setSecretTapCount(0)
     setSecretTapStartedAt(0)
-    setSyncAlert({ type: 'info', text: '\u0417\u0430\u043f\u0443\u0449\u0435\u043d\u043e \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 \u0432\u0441\u0435\u0445 \u0434\u0430\u043d\u043d\u044b\u0445. \u042d\u0442\u043e \u043c\u043e\u0436\u0435\u0442 \u0437\u0430\u043d\u044f\u0442\u044c \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u043c\u0438\u043d\u0443\u0442.' })
+    setSyncAlert({ type: 'info', text: 'Запущено обновление всех данных. Это может занять несколько минут.' })
     try {
       const response = await triggerFullSync(token)
       const stats = response?.result || {}
       if (typeof stats.started === 'boolean') {
-        setSyncAlert({ type: stats.started ? 'success' : 'info', text: stats.message || (stats.started ? '\u041f\u043e\u043b\u043d\u0430\u044f \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u044f \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u0430.' : '\u041f\u043e\u043b\u043d\u0430\u044f \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u044f \u0443\u0436\u0435 \u0432\u044b\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f.') })
+        setSyncAlert({ type: stats.started ? 'success' : 'info', text: stats.message || (stats.started ? 'Полная синхронизация запущена.' : 'Полная синхронизация уже выполняется.') })
         return
       }
-      setSyncAlert({ type: 'success', text: `\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u043e. \u041f\u043e\u043b\u0443\u0447\u0435\u043d\u043e: ${stats.fetched ?? 0}, \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e: ${stats.inserted ?? 0}, \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e: ${stats.updated ?? 0}, \u043f\u0440\u043e\u043f\u0443\u0449\u0435\u043d\u043e: ${stats.skipped ?? 0}.` })
+      setSyncAlert({ type: 'success', text: `Обновление завершено. Получено: ${stats.fetched ?? 0}, добавлено: ${stats.inserted ?? 0}, обновлено: ${stats.updated ?? 0}, пропущено: ${stats.skipped ?? 0}.` })
     } catch {
-      setSyncAlert({ type: 'error', text: '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u043f\u043e\u043b\u043d\u0443\u044e \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u044e. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u0440\u0430\u0432\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u0430 \u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.' })
+      setSyncAlert({ type: 'error', text: 'Не удалось запустить полную синхронизацию. Проверьте права доступа и настройки сервера.' })
     }
   }
 
@@ -683,11 +683,11 @@ export default function App() {
               </button>
             </div>
             <div>
-              <h1>{mode === 'widget' ? `\u0410\u0440\u0431\u0438\u0442\u0440\u0430\u0436\u043d\u043e\u0435 \u0434\u0435\u043b\u043e ${widgetCaseNumber || ''}`.trim() : '\u0410\u0440\u0431\u0438\u0442\u0440\u0430\u0436\u043d\u044b\u0435 \u0434\u0435\u043b\u0430'}</h1>
-              <p>{mode === 'widget' ? '\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u043f\u043e \u0434\u0435\u043b\u0443 \u0438\u0437 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f' : '\u041c\u043e\u043d\u0438\u0442\u043e\u0440\u0438\u043d\u0433 \u0441\u043e\u0431\u044b\u0442\u0438\u0439 \u041a\u0410\u0414 \u0432 \u0440\u0435\u0430\u043b\u044c\u043d\u043e\u043c \u0432\u0440\u0435\u043c\u0435\u043d\u0438'}</p>
+              <h1>{mode === 'widget' ? `Арбитражное дело ${widgetCaseNumber || ''}`.trim() : 'Арбитражные дела'}</h1>
+              <p>{mode === 'widget' ? 'История по делу из карточки пользователя' : 'Мониторинг событий КАД в реальном времени'}</p>
               {mode === 'widget' && widgetCaseLink && (
                 <a className="case-link timeline-link" href={widgetCaseLink} target="_blank" rel="noreferrer">
-                  \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0434\u0435\u043b\u043e \u0432 \u041a\u0410\u0414 <ExternalLink size={12} />
+                  Открыть дело в КАД <ExternalLink size={12} />
                 </a>
               )}
             </div>
@@ -696,26 +696,26 @@ export default function App() {
           {mode === 'local' && (
             <div className="local-controls">
               <div className="tabs">
-                <button className={`tab-btn${tab === 'cases' ? ' active' : ''}`} onClick={() => { setTab('cases'); setPage(1) }}>\u0421\u043f\u0438\u0441\u043e\u043a \u0434\u0435\u043b</button>
-                <button className={`tab-btn${tab === 'events' ? ' active' : ''}`} onClick={() => { setTab('events'); setPage(1) }}>\u041e\u0431\u0449\u0430\u044f \u043b\u0435\u043d\u0442\u0430</button>
+                <button className={`tab-btn${tab === 'cases' ? ' active' : ''}`} onClick={() => { setTab('cases'); setPage(1) }}>Список дел</button>
+                <button className={`tab-btn${tab === 'events' ? ' active' : ''}`} onClick={() => { setTab('events'); setPage(1) }}>Общая лента</button>
               </div>
               <div className="search-row">
                 <div className="search-wrap">
                   <Search size={14} className="search-icon-el" />
-                  <input className="search-input" type="text" value={caseSearch} onChange={e => setCaseSearch(e.target.value)} placeholder="\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u043d\u043e\u043c\u0435\u0440\u0443 \u0434\u0435\u043b\u0430\u2026" />
+                  <input className="search-input" type="text" value={caseSearch} onChange={e => setCaseSearch(e.target.value)} placeholder="Поиск по номеру дела…" />
                   <AnimatePresence>
                     {caseSearch && (
-                      <Motion.button className="search-clear" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} onClick={() => setCaseSearch('')}>\xd7</Motion.button>
+                      <Motion.button className="search-clear" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} onClick={() => setCaseSearch('')}>×</Motion.button>
                     )}
                   </AnimatePresence>
                 </div>
                 {tab === 'events' && (
                   <div className="search-wrap">
                     <Search size={14} className="search-icon-el" />
-                    <input className="search-input" type="text" value={documentSearch} onChange={e => setDocumentSearch(e.target.value)} placeholder="\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u0443\u2026" />
+                    <input className="search-input" type="text" value={documentSearch} onChange={e => setDocumentSearch(e.target.value)} placeholder="Поиск по документу…" />
                     <AnimatePresence>
                       {documentSearch && (
-                        <Motion.button className="search-clear" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} onClick={() => setDocumentSearch('')}>\xd7</Motion.button>
+                        <Motion.button className="search-clear" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} onClick={() => setDocumentSearch('')}>×</Motion.button>
                       )}
                     </AnimatePresence>
                   </div>
@@ -723,7 +723,7 @@ export default function App() {
               </div>
               <div className="meta-row">
                 <label className="page-size-control">
-                  \u041d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435
+                  На странице
                   <select value={pageSize} onChange={(e) => { setPage(1); setPageSize(Number(e.target.value)) }}>
                     {PAGE_SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
@@ -737,7 +737,7 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                <div className="cases-count">{totalItems} \u0437\u0430\u043f\u0438\u0441\u0435\u0439</div>
+                <div className="cases-count">{totalItems} записей</div>
               </div>
             </div>
           )}
@@ -745,7 +745,7 @@ export default function App() {
 
         {mode === 'widget' && (
           <div className="widget-filter-bar">
-            <span className="widget-filter-label">\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c:</span>
+            <span className="widget-filter-label">Показать:</span>
             <div className="filter-pill-group">
               {PROCESSING_FILTER_OPTIONS.map((opt) => (
                 <button key={opt.value} type="button" className={`filter-pill${processingFilter === opt.value ? ' active' : ''}`} onClick={() => handleProcessingFilterChange(opt.value)}>
@@ -753,37 +753,37 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <div className="cases-count" style={{ marginLeft: 'auto' }}>{totalItems} \u0437\u0430\u043f\u0438\u0441\u0435\u0439</div>
+            <div className="cases-count" style={{ marginLeft: 'auto' }}>{totalItems} записей</div>
           </div>
         )}
 
         {mode === 'local' && tab === 'events' && (
           <section className="range-panel">
             <div className="range-presets">
-              <button type="button" className="range-preset" onClick={() => applyDatePreset('today')}>\u0421\u0435\u0433\u043e\u0434\u043d\u044f</button>
-              <button type="button" className="range-preset" onClick={() => applyDatePreset('last7')}>7 \u0434\u043d\u0435\u0439</button>
-              <button type="button" className="range-preset" onClick={() => applyDatePreset('thisMonth')}>\u042d\u0442\u043e\u0442 \u043c\u0435\u0441\u044f\u0446</button>
+              <button type="button" className="range-preset" onClick={() => applyDatePreset('today')}>Сегодня</button>
+              <button type="button" className="range-preset" onClick={() => applyDatePreset('last7')}>7 дней</button>
+              <button type="button" className="range-preset" onClick={() => applyDatePreset('thisMonth')}>Этот месяц</button>
             </div>
             <label className="range-field">
-              \u0421
+              С
               <input type="datetime-local" value={dateFrom} onChange={(e) => { setDateFrom(applyMidnightDefault(e.target.value, dateFrom)); setPage(1) }} />
-              <button type="button" className="range-now" onClick={() => setNow('from')}>\u0421\u0435\u0439\u0447\u0430\u0441</button>
+              <button type="button" className="range-now" onClick={() => setNow('from')}>Сейчас</button>
             </label>
             <label className="range-field">
-              \u041f\u043e
+              По
               <input type="datetime-local" value={dateTo} onChange={(e) => { setDateTo(applyMidnightDefault(e.target.value, dateTo)); setPage(1) }} />
-              <button type="button" className="range-now" onClick={() => setNow('to')}>\u0421\u0435\u0439\u0447\u0430\u0441</button>
+              <button type="button" className="range-now" onClick={() => setNow('to')}>Сейчас</button>
             </label>
-            <button type="button" className="range-reset" onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}>\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c</button>
+            <button type="button" className="range-reset" onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}>Сбросить</button>
           </section>
         )}
 
         <main className="main">
           {mode === 'widget' && !widgetCaseNumber && !loading && (
-            <div className="error-card">\u26a0\ufe0f \u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0438\u0442\u044c \u043d\u043e\u043c\u0435\u0440 \u0434\u0435\u043b\u0430 \u0438\u0437 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u043b\u0435 \u0441\u0434\u0435\u043b\u043a\u0438 \u0438/\u0438\u043b\u0438 CASE_NUMBER_FIELDS.</div>
+            <div className="error-card">⚠️ Не удалось определить номер дела из карточки. Проверьте поле сделки и/или CASE_NUMBER_FIELDS.</div>
           )}
           {error && (
-            <Motion.div className="error-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>\u26a0\ufe0f {error}</Motion.div>
+            <Motion.div className="error-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>⚠️ {error}</Motion.div>
           )}
           {loading && !error && (
             <div className="skeleton-list">
@@ -793,7 +793,7 @@ export default function App() {
           {!loading && !error && activeItems.length === 0 && (
             <Motion.div className="empty-state" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
               <Scale size={44} strokeWidth={0.8} />
-              <p>\u041d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e</p>
+              <p>Ничего не найдено</p>
             </Motion.div>
           )}
           <AnimatePresence mode="wait">
@@ -819,7 +819,7 @@ export default function App() {
         {syncAlert && (
           <Motion.div className={`sync-alert ${syncAlert.type}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 14 }}>
             <span>{syncAlert.text}</span>
-            <button type="button" onClick={() => setSyncAlert(null)}>\xd7</button>
+            <button type="button" onClick={() => setSyncAlert(null)}>×</button>
           </Motion.div>
         )}
       </AnimatePresence>
