@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from requests import RequestException
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, tuple_
 
 from .auth import create_access_token, require_auth
 from .config import settings
@@ -296,8 +296,17 @@ def events_history(
     processed_filter = normalize_processing_filter(processed)
 
     with SessionLocal() as db:
-        stmt = (
-            select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType, DocumentStatus.is_processed)
+        document_key = func.coalesce(DocumentEvent.document_external_id, '').label('document_key')
+        base_stmt = (
+            select(
+                Case.id.label('case_db_id'),
+                Case.external_case_id.label('case_external_id'),
+                Case.case_number.label('case_number'),
+                document_key,
+                ContentType.content_type_external_id.label('content_type_external_id'),
+                func.max(DocumentEvent.find_date).label('latest_find_date'),
+                func.max(DocumentEvent.actual_date).label('latest_actual_date'),
+            )
             .join(DocumentEvent, DocumentEvent.case_id == Case.id)
             .join(ContentType, ContentType.event_id == DocumentEvent.id)
             .outerjoin(
@@ -311,19 +320,19 @@ def events_history(
         )
         case_search_value = case_number or search
         if case_search_value:
-            stmt = stmt.where(Case.case_number.ilike(f'%{case_search_value}%'))
+            base_stmt = base_stmt.where(Case.case_number.ilike(f'%{case_search_value}%'))
 
         if document:
-            stmt = stmt.where(ContentType.name.ilike(f'%{document}%'))
+            base_stmt = base_stmt.where(ContentType.name.ilike(f'%{document}%'))
 
-        stmt = apply_processing_filter(stmt, processed_filter)
+        base_stmt = apply_processing_filter(base_stmt, processed_filter)
 
         if date_from:
             try:
                 from_dt = datetime.fromisoformat(date_from)
                 if from_dt.tzinfo is None:
                     from_dt = from_dt.replace(tzinfo=timezone.utc)
-                stmt = stmt.where(DocumentEvent.find_date >= from_dt)
+                base_stmt = base_stmt.where(DocumentEvent.find_date >= from_dt)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail='Invalid date_from format') from exc
 
@@ -332,19 +341,59 @@ def events_history(
                 to_dt = datetime.fromisoformat(date_to)
                 if to_dt.tzinfo is None:
                     to_dt = to_dt.replace(tzinfo=timezone.utc)
-                stmt = stmt.where(DocumentEvent.find_date <= to_dt)
+                base_stmt = base_stmt.where(DocumentEvent.find_date <= to_dt)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail='Invalid date_to format') from exc
 
-        total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0
-        rows = db.execute(
-            stmt.order_by(
-                DocumentEvent.find_date.desc().nulls_last(),
-                DocumentEvent.actual_date.desc().nulls_last(),
+        grouped_stmt = base_stmt.group_by(
+            Case.id,
+            Case.external_case_id,
+            Case.case_number,
+            document_key,
+            ContentType.content_type_external_id,
+        )
+        total = db.execute(select(func.count()).select_from(grouped_stmt.order_by(None).subquery())).scalar() or 0
+        page_groups = db.execute(
+            grouped_stmt.order_by(
+                func.max(DocumentEvent.find_date).desc().nulls_last(),
+                func.max(DocumentEvent.actual_date).desc().nulls_last(),
             )
             .offset(offset)
             .limit(page_size)
         ).all()
+
+        page_group_keys = [
+            (group.case_db_id, group.document_key, group.content_type_external_id)
+            for group in page_groups
+        ]
+        rows = []
+        if page_group_keys:
+            rows_stmt = (
+                select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType, DocumentStatus.is_processed)
+                .join(DocumentEvent, DocumentEvent.case_id == Case.id)
+                .join(ContentType, ContentType.event_id == DocumentEvent.id)
+                .outerjoin(
+                    DocumentStatus,
+                    and_(
+                        DocumentStatus.case_id == Case.id,
+                        DocumentStatus.document_key == DocumentEvent.document_external_id,
+                        DocumentStatus.content_type_external_id == ContentType.content_type_external_id,
+                    ),
+                )
+                .where(
+                    tuple_(
+                        Case.id,
+                        func.coalesce(DocumentEvent.document_external_id, ''),
+                        ContentType.content_type_external_id,
+                    ).in_(page_group_keys)
+                )
+            )
+            rows = db.execute(
+                rows_stmt.order_by(
+                    DocumentEvent.find_date.desc().nulls_last(),
+                    DocumentEvent.actual_date.desc().nulls_last(),
+                )
+            ).all()
 
     return {
         'items': [

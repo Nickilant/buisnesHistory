@@ -285,6 +285,12 @@ function buildDocumentLink(item) {
   return `https://kad.arbitr.ru/Document/Pdf/${eventDataId}/${documentId}/`
 }
 
+function buildCaseLink(item) {
+  if (item.caseLink) return item.caseLink
+  if (!item.caseId) return null
+  return `https://kad.arbitr.ru/Card/${item.caseId}`
+}
+
 function HistoryRow({ item, index, showCase = false, actions }) {
   const hasActions = !!actions
   return (
@@ -341,8 +347,9 @@ function GroupedHistoryList({ items, showCase = false, showProcessingControl = f
     const groupKey = `${rep.caseId || 'no-case'}-${rep.documentId || 'no-document'}-${rep.contentTypeId || rep.contentTypeName || 'no-doc'}-${index}`
     const expanded = !!expandedKeys[groupKey]
     const docLink = buildDocumentLink(rep)
+    const caseLink = showCase ? buildCaseLink(rep) : null
 
-    const actions = (showProcessingControl || docLink) ? (
+    const actions = (showProcessingControl || docLink || caseLink) ? (
       <div className="row-actions">
         {showProcessingControl && (
           <label className="processed-toggle" title={rep.isProcessed ? 'Снять отметку' : 'Отметить как отработанный'}>
@@ -352,12 +359,17 @@ function GroupedHistoryList({ items, showCase = false, showProcessingControl = f
               disabled={!rep.documentId || !rep.contentTypeId}
               onChange={(e) => onProcessedChange?.(rep, e.target.checked)}
             />
-            <span className="processed-label">{rep.isProcessed ? 'Отработан' : 'Не отработан'}</span>
+            <span className="processed-label">Отработан</span>
           </label>
+        )}
+        {caseLink && (
+          <a className="case-link row-case-link" href={caseLink} target="_blank" rel="noreferrer" title="Открыть дело в КАД">
+            Открыть в КАД <ExternalLink size={12} />
+          </a>
         )}
         {docLink && (
           <a className="doc-open-btn" href={docLink} target="_blank" rel="noreferrer" title="Открыть документ в КАД">
-            <ExternalLink size={13} />
+            <FileText size={13} />
           </a>
         )}
       </div>
