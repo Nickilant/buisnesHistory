@@ -281,6 +281,13 @@ function logWidgetBootstrap(mode) {
   console.groupEnd()
 }
 
+function buildDocumentLink(item) {
+  const eventDataId = item.eventDataId || item.caseId
+  const documentId = item.documentId
+  if (!eventDataId || !documentId) return null
+  return `https://kad.arbitr.ru/Document/Pdf/${eventDataId}/${documentId}/`
+}
+
 function HistoryRow({ item, index, showCase = false }) {
   return (
     <motion.div
@@ -315,6 +322,7 @@ function HistoryRow({ item, index, showCase = false }) {
         <span className="history-icon"><FileText size={11} /></span>
         <span className="history-label">Документ</span>
         <span className="history-value">{item.contentTypeName}</span>
+
       </div>
     </motion.div>
   )
@@ -337,15 +345,27 @@ function GroupedHistoryList({ items, showCase = false }) {
 
     return (
       <div key={groupKey} className="history-doc-group">
-        <button
-          type="button"
-          className={`history-doc-toggle ${hasHidden ? 'expandable' : ''}`}
-          onClick={() => hasHidden && toggleKey(groupKey)}
-          aria-expanded={expanded}
-          disabled={!hasHidden}
-        >
-          <HistoryRow item={rep} index={index} showCase={showCase} />
-        </button>
+        <div className="history-doc-head">
+          <button
+            type="button"
+            className={`history-doc-toggle ${hasHidden ? 'expandable' : ''}`}
+            onClick={() => hasHidden && toggleKey(groupKey)}
+            aria-expanded={expanded}
+            disabled={!hasHidden}
+          >
+            <HistoryRow item={rep} index={index} showCase={showCase} />
+          </button>
+          {buildDocumentLink(rep) && (
+            <a
+              className="document-link"
+              href={buildDocumentLink(rep)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Открыть документ <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
         {hasHidden && expanded && (
           <div className="history-doc-expanded">
             {group.history.map((item, childIndex) => (

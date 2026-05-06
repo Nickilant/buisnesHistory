@@ -419,6 +419,27 @@ body {
   color: var(--text);
 }
 
+
+.document-link {
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px solid rgba(91,130,245,0.24);
+  background: rgba(91,130,245,0.08);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+}
+
+.document-link:hover {
+  background: rgba(91,130,245,0.14);
+}
+
 .history-empty {
   text-align: center;
   color: var(--muted);
@@ -686,6 +707,20 @@ body {
   background: var(--surface);
   border: 1px solid var(--border2);
   /* убираем overflow:hidden чтобы padding дочерних элементов не обрезался */
+}
+
+.history-doc-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 8px;
+}
+
+@media (max-width: 700px) {
+  .history-doc-head {
+    grid-template-columns: 1fr;
+  }
 }
 
 .history-doc-toggle {
