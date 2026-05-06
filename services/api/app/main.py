@@ -10,7 +10,7 @@ from sqlalchemy import and_, func, select
 
 from .auth import create_access_token, require_auth
 from .config import settings
-from .db import BitrixPortal, Case, ContentType, DocumentEvent, SessionLocal, init_db
+from .db import BitrixPortal, Case, ContentType, DocumentEvent, DocumentStatus, SessionLocal, init_db
 
 app = FastAPI(title='Casebook Widget API')
 cors_origins = [origin.strip() for origin in settings.cors_allow_origins.split(',') if origin.strip()]
@@ -28,6 +28,23 @@ EVENT_TRANSLATIONS = {
     'added': 'Добавлено',
     'changed': 'Изменено',
 }
+
+PROCESSING_FILTER_VALUES = {'all', 'processed', 'unprocessed'}
+
+
+def normalize_processing_filter(value: str | None) -> str:
+    normalized = (value or 'all').strip().lower()
+    if normalized not in PROCESSING_FILTER_VALUES:
+        raise HTTPException(status_code=400, detail='Invalid processed filter')
+    return normalized
+
+
+def apply_processing_filter(stmt, processed: str):
+    if processed == 'processed':
+        return stmt.where(DocumentStatus.is_processed.is_(True))
+    if processed == 'unprocessed':
+        return stmt.where(func.coalesce(DocumentStatus.is_processed, False).is_(False))
+    return stmt
 
 
 async def read_payload(request: Request) -> dict[str, str]:
@@ -268,6 +285,7 @@ def events_history(
     document: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    processed: str | None = None,
     page: int = 1,
     page_size: int = 10,
     _: dict = Depends(require_auth),
@@ -275,12 +293,21 @@ def events_history(
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
     offset = (page - 1) * page_size
+    processed_filter = normalize_processing_filter(processed)
 
     with SessionLocal() as db:
         stmt = (
-            select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType)
+            select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType, DocumentStatus.is_processed)
             .join(DocumentEvent, DocumentEvent.case_id == Case.id)
             .join(ContentType, ContentType.event_id == DocumentEvent.id)
+            .outerjoin(
+                DocumentStatus,
+                and_(
+                    DocumentStatus.case_id == Case.id,
+                    DocumentStatus.document_key == DocumentEvent.document_external_id,
+                    DocumentStatus.content_type_external_id == ContentType.content_type_external_id,
+                ),
+            )
         )
         case_search_value = case_number or search
         if case_search_value:
@@ -288,6 +315,8 @@ def events_history(
 
         if document:
             stmt = stmt.where(ContentType.name.ilike(f'%{document}%'))
+
+        stmt = apply_processing_filter(stmt, processed_filter)
 
         if date_from:
             try:
@@ -329,8 +358,10 @@ def events_history(
                 'contentTypeName': content.name,
                 'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_id,
                 'documentId': event.document_external_id,
+                'contentTypeId': content.content_type_external_id,
+                'isProcessed': bool(is_processed),
             }
-            for case_id, case_number, event, content in rows
+            for case_id, case_number, event, content, is_processed in rows
         ],
         'pagination': {
             'page': page,
@@ -339,23 +370,37 @@ def events_history(
             'totalPages': max(1, (total + page_size - 1) // page_size),
         },
     }
+
+
 @app.get('/cases/{case_external_id}/history')
-def case_history(case_external_id: str, _: dict = Depends(require_auth)):
+def case_history(case_external_id: str, processed: str | None = None, _: dict = Depends(require_auth)):
+    processed_filter = normalize_processing_filter(processed)
+
     with SessionLocal() as db:
         case = db.execute(select(Case).where(Case.external_case_id == case_external_id)).scalar_one_or_none()
         if not case:
             raise HTTPException(status_code=404, detail='Case not found')
 
         stmt = (
-            select(DocumentEvent, ContentType)
+            select(DocumentEvent, ContentType, DocumentStatus.is_processed)
             .join(ContentType, ContentType.event_id == DocumentEvent.id)
+            .outerjoin(
+                DocumentStatus,
+                and_(
+                    DocumentStatus.case_id == case.id,
+                    DocumentStatus.document_key == DocumentEvent.document_external_id,
+                    DocumentStatus.content_type_external_id == ContentType.content_type_external_id,
+                ),
+            )
             .where(DocumentEvent.case_id == case.id)
-            .order_by(
+        )
+        stmt = apply_processing_filter(stmt, processed_filter)
+        rows = db.execute(
+            stmt.order_by(
                 DocumentEvent.actual_date.asc().nulls_last(),
                 DocumentEvent.find_date.asc().nulls_last(),
             )
-        )
-        rows = db.execute(stmt).all()
+        ).all()
 
     return [
         {
@@ -365,9 +410,55 @@ def case_history(case_external_id: str, _: dict = Depends(require_auth)):
             'contentTypeName': content.name,
             'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_external_id,
             'documentId': event.document_external_id,
+            'contentTypeId': content.content_type_external_id,
+            'isProcessed': bool(is_processed),
         }
-        for event, content in rows
+        for event, content, is_processed in rows
     ]
+
+
+@app.patch('/documents/status')
+def update_document_status(payload: dict, _: dict = Depends(require_auth)):
+    case_external_id = payload.get('caseId')
+    document_key = payload.get('documentId') or payload.get('documentKey')
+    content_type_external_id = payload.get('contentTypeId')
+    is_processed = bool(payload.get('isProcessed'))
+
+    if not case_external_id or not document_key or not content_type_external_id:
+        raise HTTPException(status_code=400, detail='caseId, documentId and contentTypeId are required')
+
+    with SessionLocal() as db:
+        case = db.execute(select(Case).where(Case.external_case_id == case_external_id)).scalar_one_or_none()
+        if not case:
+            raise HTTPException(status_code=404, detail='Case not found')
+
+        status = db.execute(
+            select(DocumentStatus).where(
+                and_(
+                    DocumentStatus.case_id == case.id,
+                    DocumentStatus.document_key == document_key,
+                    DocumentStatus.content_type_external_id == content_type_external_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not status:
+            status = DocumentStatus(
+                case_id=case.id,
+                document_key=document_key,
+                content_type_external_id=content_type_external_id,
+            )
+            db.add(status)
+
+        status.is_processed = is_processed
+        db.commit()
+
+    return {
+        'caseId': case_external_id,
+        'documentId': document_key,
+        'contentTypeId': content_type_external_id,
+        'isProcessed': is_processed,
+    }
 
 
 @app.post('/bitrix/rest/{method:path}')

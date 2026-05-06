@@ -711,7 +711,7 @@ body {
 
 .history-doc-head {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 10px;
   padding: 0 10px 8px;
@@ -769,4 +769,56 @@ body {
 
 .history-doc-expanded .history-row:last-child {
   border-bottom: none;
+}
+/* ── Document processed controls ───────────────────────── */
+.document-processed-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  color: var(--text);
+  background: rgba(52,211,153,0.08);
+  border: 1px solid rgba(52,211,153,0.24);
+  border-radius: var(--r-sm);
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.document-processed-control input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--success);
+  cursor: pointer;
+}
+
+.document-processed-control input:disabled,
+.document-processed-control input:disabled + span {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.processing-filter-panel {
+  display: flex;
+  justify-content: flex-end;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  backdrop-filter: var(--blur);
+}
+
+@media (max-width: 700px) {
+  .document-processed-control,
+  .processing-filter-panel {
+    width: 100%;
+  }
+
+  .processing-filter-panel {
+    justify-content: stretch;
+  }
 }
