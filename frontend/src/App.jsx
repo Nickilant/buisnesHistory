@@ -368,8 +368,8 @@ function GroupedHistoryList({ items, showCase = false, showProcessingControl = f
           </a>
         )}
         {docLink && (
-          <a className="doc-open-btn" href={docLink} target="_blank" rel="noreferrer" title="Открыть документ в КАД">
-            <FileText size={13} />
+          <a className="doc-open-btn row-doc-link" href={docLink} target="_blank" rel="noreferrer" title="Открыть документ в КАД">
+            Документ <FileText size={13} />
           </a>
         )}
       </div>
