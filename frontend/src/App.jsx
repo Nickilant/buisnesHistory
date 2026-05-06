@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion as Motion, AnimatePresence } from 'framer-motion'
 import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from 'lucide-react'
 import './App.css'
 
 const API_URL = window.__API_URL__ || '/api'
 const DEFAULT_PAGE_SIZE = 10
 const PAGE_SIZE_OPTIONS = [5, 10, 25, 50]
+const PROCESSING_FILTER_OPTIONS = [
+  { value: 'all', label: 'Все документы' },
+  { value: 'processed', label: 'Отработанные' },
+  { value: 'unprocessed', label: 'Неотработанные' },
+]
 const CASE_NUMBER_FIELDS = Array.isArray(window.__CASE_NUMBER_FIELDS__)
   ? window.__CASE_NUMBER_FIELDS__
   : ['UF_CRM_1708426613594', 'UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
@@ -140,7 +145,7 @@ function buildDocumentGroups(items) {
   const groupsMap = new Map()
 
   items.forEach((item) => {
-    const key = [item.caseId || '', item.contentTypeName || '', item.caseNumber || ''].join('::')
+    const key = [item.caseId || '', item.documentId || '', item.contentTypeId || item.contentTypeName || '', item.caseNumber || ''].join('::')
     if (!groupsMap.has(key)) groupsMap.set(key, [])
     groupsMap.get(key).push(item)
   })
@@ -184,6 +189,23 @@ async function apiPost(path, token, payload = {}) {
   return resp.json()
 }
 
+async function apiPatch(path, token, payload = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+  const resp = await fetch(`${API_URL}${path}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    const body = await resp.text()
+    throw new Error(body || `Ошибка запроса ${path}`)
+  }
+  return resp.json()
+}
+
 async function fetchCasesPage(token, search = '', caseNumber = '', page = 1, pageSize = DEFAULT_PAGE_SIZE) {
   const params = new URLSearchParams()
   if (caseNumber) params.set('case_number', caseNumber)
@@ -193,19 +215,32 @@ async function fetchCasesPage(token, search = '', caseNumber = '', page = 1, pag
   return apiGet(`/cases?${params.toString()}`, token)
 }
 
-async function fetchAllEventsPage(token, caseNumber = '', document = '', dateFrom = '', dateTo = '', page = 1, pageSize = DEFAULT_PAGE_SIZE) {
+async function fetchAllEventsPage(token, caseNumber = '', document = '', dateFrom = '', dateTo = '', processed = 'all', page = 1, pageSize = DEFAULT_PAGE_SIZE) {
   const params = new URLSearchParams()
   if (caseNumber) params.set('case_number', caseNumber)
   if (document) params.set('document', document)
   if (dateFrom) params.set('date_from', dateFrom)
   if (dateTo) params.set('date_to', dateTo)
+  if (processed && processed !== 'all') params.set('processed', processed)
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
   return apiGet(`/events/history?${params.toString()}`, token)
 }
 
-async function fetchHistory(token, caseId) {
-  return apiGet(`/cases/${caseId}/history`, token)
+async function fetchHistory(token, caseId, processed = 'all') {
+  const params = new URLSearchParams()
+  if (processed && processed !== 'all') params.set('processed', processed)
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  return apiGet(`/cases/${caseId}/history${suffix}`, token)
+}
+
+async function updateDocumentStatus(token, item, isProcessed) {
+  return apiPatch('/documents/status', token, {
+    caseId: item.caseId,
+    documentId: item.documentId,
+    contentTypeId: item.contentTypeId,
+    isProcessed,
+  })
 }
 
 async function triggerFullSync(token) {
@@ -290,7 +325,7 @@ function buildDocumentLink(item) {
 
 function HistoryRow({ item, index, showCase = false }) {
   return (
-    <motion.div
+    <Motion.div
       className={`history-row ${showCase ? 'with-case' : ''}`}
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
@@ -324,12 +359,12 @@ function HistoryRow({ item, index, showCase = false }) {
         <span className="history-value">{item.contentTypeName}</span>
 
       </div>
-    </motion.div>
+    </Motion.div>
   )
 }
 
 
-function GroupedHistoryList({ items, showCase = false }) {
+function GroupedHistoryList({ items, showCase = false, showProcessingControl = false, onProcessedChange }) {
   const groups = useMemo(() => buildDocumentGroups(items), [items])
   const [expandedKeys, setExpandedKeys] = useState({})
 
@@ -340,7 +375,7 @@ function GroupedHistoryList({ items, showCase = false }) {
   return groups.map((group, index) => {
     const rep = group.representative
     const hasHidden = group.history.length > 1
-    const groupKey = `${rep.caseId || 'no-case'}-${rep.contentTypeName || 'no-doc'}-${index}`
+    const groupKey = `${rep.caseId || 'no-case'}-${rep.documentId || 'no-document'}-${rep.contentTypeId || rep.contentTypeName || 'no-doc'}-${index}`
     const expanded = !!expandedKeys[groupKey]
 
     return (
@@ -355,6 +390,17 @@ function GroupedHistoryList({ items, showCase = false }) {
           >
             <HistoryRow item={rep} index={index} showCase={showCase} />
           </button>
+          {showProcessingControl && (
+            <label className="document-processed-control" onClick={(event) => event.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={!!rep.isProcessed}
+                disabled={!rep.documentId || !rep.contentTypeId}
+                onChange={(event) => onProcessedChange?.(rep, event.target.checked)}
+              />
+              <span>Документ отработан</span>
+            </label>
+          )}
           {buildDocumentLink(rep) && (
             <a
               className="document-link"
@@ -405,7 +451,7 @@ function CaseItem({ item, token, index }) {
   }
 
   return (
-    <motion.article
+    <Motion.article
       className="case-item"
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
@@ -438,18 +484,18 @@ function CaseItem({ item, token, index }) {
           Открыть в КАД <ExternalLink size={12} />
         </a>
 
-        <motion.span
+        <Motion.span
           className="chevron"
           animate={{ rotate: expanded ? 180 : 0 }}
           transition={{ duration: 0.22, ease: 'easeInOut' }}
         >
           <ChevronDown size={17} />
-        </motion.span>
+        </Motion.span>
       </button>
 
       <AnimatePresence initial={false}>
         {expanded && (
-          <motion.div
+          <Motion.div
             key="history"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -470,10 +516,10 @@ function CaseItem({ item, token, index }) {
                 <GroupedHistoryList items={history} />
               )}
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
-    </motion.article>
+    </Motion.article>
   )
 }
 
@@ -491,7 +537,7 @@ function Pagination({ total, current, pageSize, onChange }) {
   }
 
   return (
-    <motion.div
+    <Motion.div
       className="pagination"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -514,7 +560,7 @@ function Pagination({ total, current, pageSize, onChange }) {
       <button className="pager-btn" disabled={current === totalPages} onClick={() => onChange(current + 1)}>
         →
       </button>
-    </motion.div>
+    </Motion.div>
   )
 }
 
@@ -564,6 +610,7 @@ export default function App() {
   const [widgetCaseLink, setWidgetCaseLink] = useState('')
   const [caseSearch, setCaseSearch] = useState('')
   const [documentSearch, setDocumentSearch] = useState('')
+  const [processingFilter, setProcessingFilter] = useState('all')
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
@@ -605,7 +652,7 @@ export default function App() {
     }
   }, [])
 
-  const load = useCallback(async (tok, caseQuery, documentQuery, currentTab, currentMode, caseNumber, fromDate, toDate, currentPage, currentPageSize) => {
+  const load = useCallback(async (tok, caseQuery, documentQuery, currentTab, currentMode, caseNumber, fromDate, toDate, processed, currentPage, currentPageSize) => {
     if (!tok) return
     setLoading(true)
     setError(null)
@@ -617,7 +664,7 @@ export default function App() {
         const widgetCase = normalized.items[0]
         setWidgetCaseLink(widgetCase?.caseLink || '')
         if (widgetCase?.caseId) {
-          const history = await fetchHistory(tok, widgetCase.caseId)
+          const history = await fetchHistory(tok, widgetCase.caseId, processed)
           const sorted = [...history].sort((a, b) => new Date(b.findDate) - new Date(a.findDate))
           setWidgetEvents(sorted)
           setTotalItems(sorted.length)
@@ -626,7 +673,7 @@ export default function App() {
           setTotalItems(0)
         }
       } else if (currentTab === 'events' && currentMode === 'local') {
-        const payload = await fetchAllEventsPage(tok, caseQuery, documentQuery, fromDate, toDate, currentPage, currentPageSize)
+        const payload = await fetchAllEventsPage(tok, caseQuery, documentQuery, fromDate, toDate, processed, currentPage, currentPageSize)
         const normalized = normalizePagePayload(payload, currentPage, currentPageSize)
         setEvents(normalized.items)
         setTotalItems(normalized.pagination.total)
@@ -661,8 +708,8 @@ export default function App() {
 
   useEffect(() => {
     if (mode === 'widget' && !widgetCaseNumber) return
-    load(token, debouncedCaseSearch, debouncedDocumentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo, page, pageSize)
-  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo, debouncedCaseSearch, debouncedDocumentSearch, page, pageSize])
+    load(token, debouncedCaseSearch, debouncedDocumentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo, processingFilter, page, pageSize)
+  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo, processingFilter, debouncedCaseSearch, debouncedDocumentSearch, page, pageSize])
 
   const handleCaseSearch = (val) => setCaseSearch(val)
 
@@ -706,6 +753,42 @@ export default function App() {
     setDateFrom(from)
     setDateTo(to)
     setPage(1)
+  }
+
+  const handleProcessingFilterChange = (value) => {
+    setProcessingFilter(value)
+    setPage(1)
+  }
+
+  const handleProcessedChange = async (item, isProcessed) => {
+    const patchItem = (entry) => (
+      entry.caseId === item.caseId &&
+      entry.documentId === item.documentId &&
+      entry.contentTypeId === item.contentTypeId
+        ? { ...entry, isProcessed }
+        : entry
+    )
+
+    setEvents((prev) => prev.map(patchItem))
+    setWidgetEvents((prev) => prev.map(patchItem))
+
+    try {
+      await updateDocumentStatus(token, item, isProcessed)
+      if (processingFilter !== 'all') {
+        load(token, debouncedCaseSearch, debouncedDocumentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo, processingFilter, page, pageSize)
+      }
+    } catch (e) {
+      const revertItem = (entry) => (
+        entry.caseId === item.caseId &&
+        entry.documentId === item.documentId &&
+        entry.contentTypeId === item.contentTypeId
+          ? { ...entry, isProcessed: !isProcessed }
+          : entry
+      )
+      setError(e.message)
+      setEvents((prev) => prev.map(revertItem))
+      setWidgetEvents((prev) => prev.map(revertItem))
+    }
   }
 
   const handleSecretSyncTap = async () => {
@@ -791,13 +874,13 @@ export default function App() {
                   />
                   <AnimatePresence>
                     {caseSearch && (
-                      <motion.button
+                      <Motion.button
                         className="search-clear"
                         initial={{ opacity: 0, scale: 0.6 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.6 }}
                         onClick={() => handleCaseSearch('')}
-                      >×</motion.button>
+                      >×</Motion.button>
                     )}
                   </AnimatePresence>
                 </div>
@@ -814,13 +897,13 @@ export default function App() {
                     />
                     <AnimatePresence>
                       {documentSearch && (
-                        <motion.button
+                        <Motion.button
                           className="search-clear"
                           initial={{ opacity: 0, scale: 0.6 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.6 }}
                           onClick={() => handleDocumentSearch('')}
-                        >×</motion.button>
+                        >×</Motion.button>
                       )}
                     </AnimatePresence>
                   </div>
@@ -844,11 +927,41 @@ export default function App() {
                   </select>
                 </label>
 
+                {tab === 'events' && (
+                  <label className="page-size-control">
+                    Статус
+                    <select
+                      value={processingFilter}
+                      onChange={(e) => handleProcessingFilterChange(e.target.value)}
+                    >
+                      {PROCESSING_FILTER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
                 <div className="cases-count">{totalItems} записей</div>
               </div>
             </div>
           )}
         </header>
+
+        {mode === 'widget' && (
+          <section className="processing-filter-panel">
+            <label className="page-size-control">
+              Статус документов
+              <select
+                value={processingFilter}
+                onChange={(e) => handleProcessingFilterChange(e.target.value)}
+              >
+                {PROCESSING_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          </section>
+        )}
 
         {mode === "local" && tab === "events" && (
           <section className="range-panel">
@@ -901,9 +1014,9 @@ export default function App() {
           )}
 
           {error && (
-            <motion.div className="error-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <Motion.div className="error-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               ⚠️ {error}
-            </motion.div>
+            </Motion.div>
           )}
 
           {loading && !error && (
@@ -915,23 +1028,23 @@ export default function App() {
           )}
 
           {!loading && !error && activeItems.length === 0 && (
-            <motion.div className="empty-state" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+            <Motion.div className="empty-state" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
               <Scale size={44} strokeWidth={0.8} />
               <p>Ничего не найдено</p>
-            </motion.div>
+            </Motion.div>
           )}
 
           <AnimatePresence mode="wait">
             {!loading && !error && visibleItems.length > 0 && (
-              <motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${tab}-${pageSize}`}>
+              <Motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${processingFilter}-${tab}-${pageSize}`}>
                 {tab === 'events'
-                  ? <GroupedHistoryList items={visibleItems} showCase />
+                  ? <GroupedHistoryList items={visibleItems} showCase showProcessingControl onProcessedChange={handleProcessedChange} />
                   : mode === 'widget'
-                    ? <GroupedHistoryList items={visibleItems} />
+                    ? <GroupedHistoryList items={visibleItems} showProcessingControl onProcessedChange={handleProcessedChange} />
                     : visibleItems.map((item, i) => (
                       <CaseItem key={item.caseId} item={item} token={token} index={i} />
                     ))}
-              </motion.div>
+              </Motion.div>
             )}
           </AnimatePresence>
         </main>
@@ -947,7 +1060,7 @@ export default function App() {
       </div>
       <AnimatePresence>
         {syncAlert && (
-          <motion.div
+          <Motion.div
             className={`sync-alert ${syncAlert.type}`}
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
@@ -955,7 +1068,7 @@ export default function App() {
           >
             <span>{syncAlert.text}</span>
             <button type="button" onClick={() => setSyncAlert(null)}>×</button>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
     </div>

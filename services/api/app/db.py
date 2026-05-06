@@ -2,7 +2,7 @@ import uuid
 from time import sleep
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, create_engine, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, create_engine, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -48,6 +48,24 @@ class ContentType(Base):
     event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('document_events.id', ondelete='CASCADE'), index=True)
     content_type_external_id: Mapped[str] = mapped_column(String(128), index=True)
     name: Mapped[str] = mapped_column(Text)
+
+
+class DocumentStatus(Base):
+    __tablename__ = 'document_statuses'
+    __table_args__ = (
+        UniqueConstraint('case_id', 'document_key', 'content_type_external_id', name='uq_document_status_document'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('cases.id', ondelete='CASCADE'), index=True)
+    document_key: Mapped[str] = mapped_column(String(128), index=True)
+    content_type_external_id: Mapped[str] = mapped_column(String(128), index=True)
+    is_processed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default='false')
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class BitrixPortal(Base):
