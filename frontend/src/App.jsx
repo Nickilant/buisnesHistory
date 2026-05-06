@@ -322,7 +322,7 @@ function HistoryRow({ item, index, showCase = false, actions }) {
         <span className="history-label">Тип события</span>
         <span className="history-value">{item.eventType}</span>
       </div>
-      <div className="history-cell">
+      <div className="history-cell history-cell-document">
         <span className="history-icon"><FileText size={11} /></span>
         <span className="history-label">Документ</span>
         <span className="history-value">{item.contentTypeName}</span>
