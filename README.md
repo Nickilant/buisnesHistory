@@ -115,7 +115,7 @@
 - `GET /cases`
 - `GET /cases/{caseId}/history`
 - `GET /events/history` с фильтрами `document_type` (`Определение`, `Решение`, `Заявление`, `Дополнение к делу`, `Ходатайства`, `Прочее`) и `date_field` (`find` или `actual`)
-- `POST /documents/availability` — неблокирующая проверка наличия PDF в КАД для кнопки документа; API повторяет цепочку КАД `GET` → `POST` к PDF URL, читает первые байты POST-ответа, кэширует результат на 1 час и отключает кнопку только при уверенном пустом ответе (`unavailable`); неоднозначные ответы КАД оставляют ссылку кликабельной.
+- `POST /documents/availability` — неблокирующая проверка наличия PDF через Casebook API `GET /arbitrage/cases/{caseId}/documents/{documentId}`; если `fileName` пустой, кнопка документа отключается, если `fileName` заполнен — ссылка остаётся кликабельной; результат кэшируется на 1 час.
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
 - `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)

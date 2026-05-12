@@ -103,57 +103,34 @@ DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS = 5000
 _document_availability_cache: dict[str, tuple[float, str]] = {}
 
 
-def build_kad_document_url(event_data_id: str, document_id: str) -> str:
-    return f'https://kad.arbitr.ru/Document/Pdf/{event_data_id}/{document_id}/'
+def build_casebook_document_url(case_id: str, document_id: str) -> str:
+    base_url = settings.casebook_api_url.split('/tracking/', 1)[0].rstrip('/')
+    return f'{base_url}/cases/{case_id}/documents/{document_id}'
 
 
-def read_first_response_chunk(response: requests.Response) -> bytes:
-    for chunk in response.iter_content(chunk_size=16):
-        if chunk:
-            return chunk
-    return b''
+def build_casebook_headers() -> dict[str, str]:
+    headers = {'accept': 'application/json'}
+    if not settings.casebook_api_key:
+        return headers
+
+    scheme = settings.casebook_auth_scheme.lower()
+    if scheme in {'auto', 'apikey'}:
+        headers['apikey'] = settings.casebook_api_key
+        headers['apiversion'] = settings.casebook_api_version
+    if scheme in {'auto', 'bearer'}:
+        headers['Authorization'] = f'Bearer {settings.casebook_api_key}'
+    return headers
 
 
-def detect_document_availability(response: requests.Response, first_chunk: bytes = b'') -> str:
-    if response.status_code in {404, 410}:
-        return 'unavailable'
-    if response.status_code not in {200, 206}:
-        return 'unknown'
-
-    content_length = response.headers.get('content-length')
-    if content_length == '0' or not first_chunk:
-        return 'unavailable'
-
-    content_type = (response.headers.get('content-type') or '').lower()
-    content_disposition = (response.headers.get('content-disposition') or '').lower()
-    if first_chunk.startswith(b'%PDF') or 'application/pdf' in content_type:
-        return 'available'
-    if 'attachment' in content_disposition and len(first_chunk) <= 16:
-        return 'unavailable'
-
+def detect_casebook_document_availability(payload: dict) -> str:
+    file_name = payload.get('fileName')
+    if isinstance(file_name, str):
+        return 'available' if file_name.strip() else 'unavailable'
     return 'unknown'
 
 
-def probe_kad_document_response(session: requests.Session, url: str) -> str:
-    headers = {
-        'Accept': 'application/pdf,*/*',
-        'Origin': 'https://kad.arbitr.ru',
-        'Referer': 'https://kad.arbitr.ru/',
-        'X-Requested-With': 'XMLHttpRequest',
-    }
-    response = session.post(url, headers=headers, stream=True, timeout=(2, 8), allow_redirects=True)
-    with response:
-        if response.status_code not in {200, 206}:
-            return detect_document_availability(response)
-        try:
-            first_chunk = read_first_response_chunk(response)
-        except RequestException:
-            return 'unavailable'
-        return detect_document_availability(response, first_chunk)
-
-
-def check_kad_document_available(event_data_id: str, document_id: str) -> str:
-    url = build_kad_document_url(event_data_id, document_id)
+def check_casebook_document_available(case_id: str, document_id: str) -> str:
+    url = build_casebook_document_url(case_id, document_id)
     now = monotonic()
     cached = _document_availability_cache.get(url)
     if cached and now - cached[0] < DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS:
@@ -161,10 +138,13 @@ def check_kad_document_available(event_data_id: str, document_id: str) -> str:
 
     status = 'unknown'
     try:
-        with requests.Session() as session:
-            session.get(url, headers={'Accept': 'text/html,*/*'}, timeout=(2, 5), allow_redirects=True)
-            status = probe_kad_document_response(session, url)
-    except RequestException:
+        response = requests.get(url, headers=build_casebook_headers(), timeout=(2, 8))
+        if response.status_code == 404:
+            status = 'unavailable'
+        else:
+            response.raise_for_status()
+            status = detect_casebook_document_availability(response.json())
+    except (RequestException, ValueError):
         status = 'unknown'
 
     if len(_document_availability_cache) >= DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS:
@@ -605,7 +585,7 @@ def documents_availability(payload: dict, _: dict = Depends(require_auth)):
     if normalized_documents:
         with ThreadPoolExecutor(max_workers=min(6, len(normalized_documents))) as executor:
             future_map = {
-                executor.submit(check_kad_document_available, event_data_id, document_id): key
+                executor.submit(check_casebook_document_available, event_data_id, document_id): key
                 for key, event_data_id, document_id in normalized_documents
             }
             for future in as_completed(future_map):

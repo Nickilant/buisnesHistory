@@ -17,5 +17,10 @@ class Settings(BaseSettings):
     updater_service_url: str = 'http://updater:8001'
     full_sync_secret: str | None = None
 
+    casebook_api_url: str = 'https://api3.casebook.ru/arbitrage/tracking/events/documents'
+    casebook_api_key: str | None = None
+    casebook_api_version: str = '2'
+    casebook_auth_scheme: str = 'auto'
+
 
 settings = Settings()
