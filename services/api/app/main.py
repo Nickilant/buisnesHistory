@@ -100,35 +100,31 @@ def apply_processing_filter(stmt, processed: str):
 
 DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS = 60 * 60
 DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS = 5000
-_document_availability_cache: dict[str, tuple[float, bool]] = {}
+_document_availability_cache: dict[str, tuple[float, str]] = {}
 
 
 def build_kad_document_url(event_data_id: str, document_id: str) -> str:
     return f'https://kad.arbitr.ru/Document/Pdf/{event_data_id}/{document_id}/'
 
 
-def is_document_response_available(response: requests.Response) -> bool:
+def detect_document_availability(response: requests.Response) -> str:
+    if response.status_code in {404, 410}:
+        return 'unavailable'
     if response.status_code not in {200, 206}:
-        return False
+        return 'unknown'
 
     content_length = response.headers.get('content-length')
     if content_length == '0':
-        return False
+        return 'unavailable'
 
     content_type = (response.headers.get('content-type') or '').lower()
     if 'application/pdf' in content_type:
-        return True
+        return 'available'
 
-    if content_length:
-        try:
-            return int(content_length) > 0
-        except ValueError:
-            return False
-
-    return False
+    return 'unknown'
 
 
-def check_kad_document_available(event_data_id: str, document_id: str) -> bool:
+def check_kad_document_available(event_data_id: str, document_id: str) -> str:
     url = build_kad_document_url(event_data_id, document_id)
     now = monotonic()
     cached = _document_availability_cache.get(url)
@@ -136,19 +132,19 @@ def check_kad_document_available(event_data_id: str, document_id: str) -> bool:
         return cached[1]
 
     headers = {'Range': 'bytes=0-0'}
-    available = False
+    status = 'unknown'
     try:
         response = requests.get(url, headers=headers, stream=True, timeout=(2, 5), allow_redirects=True)
         with response:
-            available = is_document_response_available(response)
+            status = detect_document_availability(response)
     except RequestException:
-        available = False
+        status = 'unknown'
 
     if len(_document_availability_cache) >= DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS:
         oldest_key = min(_document_availability_cache, key=lambda key: _document_availability_cache[key][0])
         _document_availability_cache.pop(oldest_key, None)
-    _document_availability_cache[url] = (now, available)
-    return available
+    _document_availability_cache[url] = (now, status)
+    return status
 
 
 async def read_payload(request: Request) -> dict[str, str]:
@@ -578,7 +574,7 @@ def documents_availability(payload: dict, _: dict = Depends(require_auth)):
         seen_keys.add(key)
         normalized_documents.append((key, event_data_id, document_id))
 
-    results: dict[str, bool] = {}
+    results: dict[str, str] = {}
     if normalized_documents:
         with ThreadPoolExecutor(max_workers=min(6, len(normalized_documents))) as executor:
             future_map = {
@@ -590,7 +586,7 @@ def documents_availability(payload: dict, _: dict = Depends(require_auth)):
                 try:
                     results[key] = future.result()
                 except Exception:
-                    results[key] = False
+                    results[key] = 'unknown'
 
     return {
         'documents': [
@@ -598,7 +594,8 @@ def documents_availability(payload: dict, _: dict = Depends(require_auth)):
                 'key': key,
                 'eventDataId': event_data_id,
                 'documentId': document_id,
-                'available': results.get(key, False),
+                'available': results.get(key) == 'available',
+                'status': results.get(key, 'unknown'),
             }
             for key, event_data_id, document_id in normalized_documents
         ]

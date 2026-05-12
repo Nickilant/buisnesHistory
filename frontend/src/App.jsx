@@ -393,14 +393,14 @@ function GroupedHistoryList({ items, token, showCase = false, showProcessingCont
       .then((documents) => {
         setAvailabilityByKey((prev) => ({
           ...prev,
-          ...Object.fromEntries(documents.map((doc) => [doc.key, !!doc.available])),
+          ...Object.fromEntries(documents.map((doc) => [doc.key, doc.status === 'unavailable' ? false : 'available'])),
         }))
       })
       .catch((err) => {
         console.warn('[Casebook app] Failed to check document availability', err)
         setAvailabilityByKey((prev) => ({
           ...prev,
-          ...Object.fromEntries(documentsToCheck.map((doc) => [doc.key, false])),
+          ...Object.fromEntries(documentsToCheck.map((doc) => [doc.key, 'available'])),
         }))
       })
   }, [groups, token, availabilityByKey])
@@ -413,7 +413,7 @@ function GroupedHistoryList({ items, token, showCase = false, showProcessingCont
     const docLink = buildDocumentLink(rep)
     const docAvailabilityKey = getDocumentAvailabilityKey(rep)
     const docAvailability = docAvailabilityKey ? availabilityByKey[docAvailabilityKey] : undefined
-    const isDocumentAvailable = docAvailability === true
+    const isDocumentAvailable = docAvailability === true || docAvailability === 'available'
     const isDocumentChecking = docAvailability === undefined || docAvailability === 'checking'
     const caseLink = showCase ? buildCaseLink(rep) : null
 
