@@ -114,7 +114,8 @@
 Защищённые (`Authorization: Bearer <token>`):
 - `GET /cases`
 - `GET /cases/{caseId}/history`
-- `GET /events/history` с фильтрами `document_type` (`Определение`, `Решение`, `Заявление`, `Дополнение к делу`, `Ходатайство`, `Прочее`) и `date_field` (`find` или `actual`)
+- `GET /events/history` с фильтрами `document_type` (`Определение`, `Решение`, `Заявление`, `Дополнение к делу`, `Ходатайства`, `Прочее`) и `date_field` (`find` или `actual`)
+- `POST /documents/availability` — неблокирующая проверка наличия PDF в КАД для кнопки документа; API кэширует результат на 1 час и проверяет только видимые документы.
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
 - `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)
