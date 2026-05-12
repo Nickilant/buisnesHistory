@@ -4,6 +4,7 @@ import logging
 from time import sleep
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from dateutil import parser
@@ -14,6 +15,15 @@ from .config import settings
 from .db import Case, ContentType, DocumentEvent, SessionLocal
 
 logger = logging.getLogger('uvicorn.error')
+CASEBOOK_DATE_TIMEZONE = ZoneInfo('Europe/Moscow')
+
+
+def _format_casebook_date_param(value: date | datetime) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(CASEBOOK_DATE_TIMEZONE)
+        return value.replace(tzinfo=None, microsecond=0).isoformat(timespec='seconds')
+    return value.isoformat()
 
 
 def _to_dt(value: str | None):
@@ -79,9 +89,9 @@ def fetch_casebook(start_date: date | datetime | None = None, end_date: date | d
             'size': settings.page_size,
         }
         if start_date is not None:
-            params['dateFrom'] = start_date.isoformat()
+            params['dateFrom'] = _format_casebook_date_param(start_date)
         if end_date is not None:
-            params['dateTo'] = end_date.isoformat()
+            params['dateTo'] = _format_casebook_date_param(end_date)
         if offset is not None:
             params['offset'] = offset
 
@@ -250,14 +260,14 @@ def sync_today_and_tomorrow() -> dict[str, int]:
 
 
 def sync_previous_half_hour() -> dict[str, int]:
-    end_utc = datetime.now(timezone.utc)
-    start_utc = end_utc - timedelta(minutes=30)
+    end_msk = datetime.now(CASEBOOK_DATE_TIMEZONE)
+    start_msk = end_msk - timedelta(minutes=30)
     logger.info(
         'Диапазон планового обновления Casebook за предыдущие 30 минут: dateFrom=%s, dateTo=%s.',
-        start_utc.isoformat(),
-        end_utc.isoformat(),
+        _format_casebook_date_param(start_msk),
+        _format_casebook_date_param(end_msk),
     )
-    return sync_casebook_range(start_utc, end_utc)
+    return sync_casebook_range(start_msk, end_msk)
 
 
 def run_sync_with_logging(sync_kind: str, runner: Any) -> dict[str, int]:
