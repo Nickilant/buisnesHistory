@@ -47,6 +47,14 @@ def _build_hash(item: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
+def _to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {'true', '1', 'yes', 'y'}
+    return bool(value)
+
+
 def _build_casebook_headers() -> dict[str, str]:
     """
     Supports multiple auth styles used by Casebook deployments:
@@ -187,6 +195,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
                 event_db.event_type = item.get('eventType') or event_db.event_type
                 event_db.find_date = _to_dt(item.get('findDate'))
                 event_db.actual_date = _to_dt(document_obj.get('actualDate'))
+                event_db.is_deleted = _to_bool(item.get('isDeleted'))
                 # Refresh content types
                 event_db.content_types.clear()
                 db.flush()
@@ -197,6 +206,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
                     event_type=item.get('eventType') or 'added',
                     find_date=_to_dt(item.get('findDate')),
                     actual_date=_to_dt(document_obj.get('actualDate')),
+                    is_deleted=_to_bool(item.get('isDeleted')),
                     raw_item=item,
                     source_hash=source_hash,
                 )

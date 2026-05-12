@@ -21,8 +21,8 @@ const DOCUMENT_TYPE_FILTER_OPTIONS = [
   { value: 'Прочее', label: 'Прочее' },
 ]
 const DATE_FIELD_FILTER_OPTIONS = [
-  { value: 'find', label: 'Найдено' },
-  { value: 'actual', label: 'Актуально до' },
+  { value: 'find', label: 'Дата изменения' },
+  { value: 'actual', label: 'Дата документа' },
 ]
 const CASE_NUMBER_FIELDS = Array.isArray(window.__CASE_NUMBER_FIELDS__)
   ? window.__CASE_NUMBER_FIELDS__
@@ -337,12 +337,12 @@ function HistoryRow({ item, index, showCase = false, actions }) {
       )}
       <div className="history-cell">
         <span className="history-icon"><Zap size={11} /></span>
-        <span className="history-label">Найдено</span>
+        <span className="history-label">Дата изменения</span>
         <span className="history-value">{formatDate(item.findDate)}</span>
       </div>
       <div className="history-cell">
         <span className="history-icon"><Clock size={11} /></span>
-        <span className="history-label">Актуально до</span>
+        <span className="history-label">Дата документа</span>
         <span className="history-value">{formatDate(item.actualDate)}</span>
       </div>
       <div className="history-cell">
@@ -416,6 +416,7 @@ function GroupedHistoryList({ items, token, showCase = false, showProcessingCont
     const isDocumentAvailable = docAvailability === true || docAvailability === 'available'
     const isDocumentChecking = docAvailability === undefined || docAvailability === 'checking'
     const caseLink = showCase ? buildCaseLink(rep) : null
+    const isDeleted = group.history.some((item) => item.isDeleted)
 
     const actions = (showProcessingControl || docLink || caseLink) ? (
       <div className="row-actions">
@@ -453,7 +454,8 @@ function GroupedHistoryList({ items, token, showCase = false, showProcessingCont
     ) : null
 
     return (
-      <div key={groupKey} className="history-doc-group">
+      <div key={groupKey} className={`history-doc-group${isDeleted ? ' deleted' : ''}`}>
+        {isDeleted && <span className="deleted-badge">Было удалено</span>}
         <button
           type="button"
           className={`history-doc-toggle${hasHidden ? ' expandable' : ''}`}
