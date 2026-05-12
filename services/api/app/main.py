@@ -107,18 +107,25 @@ def build_kad_document_url(event_data_id: str, document_id: str) -> str:
     return f'https://kad.arbitr.ru/Document/Pdf/{event_data_id}/{document_id}/'
 
 
-def detect_document_availability(response: requests.Response) -> str:
+def read_first_response_chunk(response: requests.Response) -> bytes:
+    for chunk in response.iter_content(chunk_size=8):
+        if chunk:
+            return chunk
+    return b''
+
+
+def detect_document_availability(response: requests.Response, first_chunk: bytes = b'') -> str:
     if response.status_code in {404, 410}:
         return 'unavailable'
     if response.status_code not in {200, 206}:
         return 'unknown'
 
     content_length = response.headers.get('content-length')
-    if content_length == '0':
+    if content_length == '0' or not first_chunk:
         return 'unavailable'
 
     content_type = (response.headers.get('content-type') or '').lower()
-    if 'application/pdf' in content_type:
+    if first_chunk.startswith(b'%PDF') or 'application/pdf' in content_type:
         return 'available'
 
     return 'unknown'
@@ -131,12 +138,13 @@ def check_kad_document_available(event_data_id: str, document_id: str) -> str:
     if cached and now - cached[0] < DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS:
         return cached[1]
 
-    headers = {'Range': 'bytes=0-0'}
+    headers = {'Accept': 'application/pdf,*/*', 'Range': 'bytes=0-7'}
     status = 'unknown'
     try:
-        response = requests.get(url, headers=headers, stream=True, timeout=(2, 5), allow_redirects=True)
+        response = requests.post(url, headers=headers, stream=True, timeout=(2, 5), allow_redirects=True)
         with response:
-            status = detect_document_availability(response)
+            first_chunk = read_first_response_chunk(response) if response.status_code in {200, 206} else b''
+            status = detect_document_availability(response, first_chunk)
     except RequestException:
         status = 'unknown'
 
