@@ -30,6 +30,12 @@ EVENT_TRANSLATIONS = {
 }
 
 PROCESSING_FILTER_VALUES = {'all', 'processed', 'unprocessed'}
+DATE_FILTER_FIELDS = {
+    'find': DocumentEvent.find_date,
+    'actual': DocumentEvent.actual_date,
+}
+DOCUMENT_TYPE_FILTER_VALUES = {'Определение', 'Решение', 'Заявление', 'Дополнение к делу', 'Ходатайство', 'Прочее'}
+DOCUMENT_TYPE_PRIMARY_VALUES = DOCUMENT_TYPE_FILTER_VALUES - {'Прочее'}
 
 
 def normalize_processing_filter(value: str | None) -> str:
@@ -37,6 +43,47 @@ def normalize_processing_filter(value: str | None) -> str:
     if normalized not in PROCESSING_FILTER_VALUES:
         raise HTTPException(status_code=400, detail='Invalid processed filter')
     return normalized
+
+
+def normalize_date_filter_field(value: str | None):
+    normalized = (value or 'find').strip().lower()
+    if normalized not in DATE_FILTER_FIELDS:
+        raise HTTPException(status_code=400, detail='Invalid date_field filter')
+    return DATE_FILTER_FIELDS[normalized]
+
+
+def apply_document_type_filter(stmt, document_type: str | None):
+    if not document_type or document_type == 'all':
+        return stmt
+    if document_type not in DOCUMENT_TYPE_FILTER_VALUES:
+        raise HTTPException(status_code=400, detail='Invalid document_type filter')
+
+    type_expr = func.trim(func.split_part(ContentType.name, ':', 1))
+    if document_type == 'Прочее':
+        return stmt.where(type_expr.notin_(DOCUMENT_TYPE_PRIMARY_VALUES))
+    return stmt.where(type_expr == document_type)
+
+
+def apply_date_range_filter(stmt, date_column, date_from: str | None, date_to: str | None):
+    if date_from:
+        try:
+            from_dt = datetime.fromisoformat(date_from)
+            if from_dt.tzinfo is None:
+                from_dt = from_dt.replace(tzinfo=timezone.utc)
+            stmt = stmt.where(date_column >= from_dt)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail='Invalid date_from format') from exc
+
+    if date_to:
+        try:
+            to_dt = datetime.fromisoformat(date_to)
+            if to_dt.tzinfo is None:
+                to_dt = to_dt.replace(tzinfo=timezone.utc)
+            stmt = stmt.where(date_column <= to_dt)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail='Invalid date_to format') from exc
+
+    return stmt
 
 
 def apply_processing_filter(stmt, processed: str):
@@ -286,6 +333,8 @@ def events_history(
     date_from: str | None = None,
     date_to: str | None = None,
     processed: str | None = None,
+    document_type: str | None = None,
+    date_field: str | None = None,
     page: int = 1,
     page_size: int = 10,
     _: dict = Depends(require_auth),
@@ -294,6 +343,7 @@ def events_history(
     page_size = max(1, min(page_size, 100))
     offset = (page - 1) * page_size
     processed_filter = normalize_processing_filter(processed)
+    date_filter_column = normalize_date_filter_field(date_field)
 
     with SessionLocal() as db:
         document_key = func.coalesce(DocumentEvent.document_external_id, '').label('document_key')
@@ -326,24 +376,8 @@ def events_history(
             base_stmt = base_stmt.where(ContentType.name.ilike(f'%{document}%'))
 
         base_stmt = apply_processing_filter(base_stmt, processed_filter)
-
-        if date_from:
-            try:
-                from_dt = datetime.fromisoformat(date_from)
-                if from_dt.tzinfo is None:
-                    from_dt = from_dt.replace(tzinfo=timezone.utc)
-                base_stmt = base_stmt.where(DocumentEvent.find_date >= from_dt)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail='Invalid date_from format') from exc
-
-        if date_to:
-            try:
-                to_dt = datetime.fromisoformat(date_to)
-                if to_dt.tzinfo is None:
-                    to_dt = to_dt.replace(tzinfo=timezone.utc)
-                base_stmt = base_stmt.where(DocumentEvent.find_date <= to_dt)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail='Invalid date_to format') from exc
+        base_stmt = apply_document_type_filter(base_stmt, document_type)
+        base_stmt = apply_date_range_filter(base_stmt, date_filter_column, date_from, date_to)
 
         grouped_stmt = base_stmt.group_by(
             Case.id,

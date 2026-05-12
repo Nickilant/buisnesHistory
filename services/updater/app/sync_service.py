@@ -69,7 +69,7 @@ def _retry_delay_seconds(attempt: int, retry_after: str | None) -> float:
     return min(delay, settings.casebook_retry_max_delay_seconds)
 
 
-def fetch_casebook(start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
+def fetch_casebook(start_date: date | datetime | None = None, end_date: date | datetime | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
     page_number = 0
@@ -232,7 +232,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def sync_casebook_range(start_date: date, end_date: date) -> dict[str, int]:
+def sync_casebook_range(start_date: date | datetime, end_date: date | datetime) -> dict[str, int]:
     payload_items = fetch_casebook(start_date, end_date)
     return _sync_payload_items(payload_items)
 
@@ -246,6 +246,12 @@ def sync_today_and_tomorrow() -> dict[str, int]:
     today_utc = datetime.now(timezone.utc).date()
     tomorrow_utc = today_utc + timedelta(days=1)
     return sync_casebook_range(today_utc, tomorrow_utc)
+
+
+def sync_previous_half_hour() -> dict[str, int]:
+    end_utc = datetime.now(timezone.utc)
+    start_utc = end_utc - timedelta(minutes=30)
+    return sync_casebook_range(start_utc, end_utc)
 
 
 def run_sync_with_logging(sync_kind: str, runner: Any) -> dict[str, int]:

@@ -11,6 +11,19 @@ const PROCESSING_FILTER_OPTIONS = [
   { value: 'processed', label: 'Отработанные' },
   { value: 'unprocessed', label: 'Неотработанные' },
 ]
+const DOCUMENT_TYPE_FILTER_OPTIONS = [
+  { value: 'all', label: 'Все типы' },
+  { value: 'Определение', label: 'Определение' },
+  { value: 'Решение', label: 'Решение' },
+  { value: 'Заявление', label: 'Заявление' },
+  { value: 'Дополнение к делу', label: 'Дополнение к делу' },
+  { value: 'Ходатайство', label: 'Ходатайство' },
+  { value: 'Прочее', label: 'Прочее' },
+]
+const DATE_FIELD_FILTER_OPTIONS = [
+  { value: 'find', label: 'Найдено' },
+  { value: 'actual', label: 'Актуально до' },
+]
 const CASE_NUMBER_FIELDS = Array.isArray(window.__CASE_NUMBER_FIELDS__)
   ? window.__CASE_NUMBER_FIELDS__
   : ['UF_CRM_1708426613594', 'UF_CRM_CASE_NUMBER', 'UF_CRM_1699999999', 'CASE_NUMBER']
@@ -186,13 +199,15 @@ async function fetchCasesPage(token, search = '', caseNumber = '', page = 1, pag
   return apiGet(`/cases?${params.toString()}`, token)
 }
 
-async function fetchAllEventsPage(token, caseNumber = '', document = '', dateFrom = '', dateTo = '', processed = 'all', page = 1, pageSize = DEFAULT_PAGE_SIZE) {
+async function fetchAllEventsPage(token, caseNumber = '', document = '', dateFrom = '', dateTo = '', processed = 'all', documentType = 'all', dateField = 'find', page = 1, pageSize = DEFAULT_PAGE_SIZE) {
   const params = new URLSearchParams()
   if (caseNumber) params.set('case_number', caseNumber)
   if (document) params.set('document', document)
   if (dateFrom) params.set('date_from', dateFrom)
   if (dateTo) params.set('date_to', dateTo)
   if (processed && processed !== 'all') params.set('processed', processed)
+  if (documentType && documentType !== 'all') params.set('document_type', documentType)
+  if (dateField) params.set('date_field', dateField)
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
   return apiGet(`/events/history?${params.toString()}`, token)
@@ -523,6 +538,8 @@ export default function App() {
   const [caseSearch, setCaseSearch] = useState('')
   const [documentSearch, setDocumentSearch] = useState('')
   const [processingFilter, setProcessingFilter] = useState('all')
+  const [documentTypeFilter, setDocumentTypeFilter] = useState('all')
+  const [dateFieldFilter, setDateFieldFilter] = useState('find')
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
@@ -577,7 +594,7 @@ export default function App() {
           setTotalItems(0)
         }
       } else if (currentTab === 'events' && currentMode === 'local') {
-        const payload = await fetchAllEventsPage(tok, caseQuery, documentQuery, fromDate, toDate, processed, currentPage, currentPageSize)
+        const payload = await fetchAllEventsPage(tok, caseQuery, documentQuery, fromDate, toDate, processed, documentTypeFilter, dateFieldFilter, currentPage, currentPageSize)
         const normalized = normalizePagePayload(payload, currentPage, currentPageSize)
         setEvents(normalized.items)
         setTotalItems(normalized.pagination.total)
@@ -591,7 +608,7 @@ export default function App() {
       setError(e.message)
     }
     setLoading(false)
-  }, [])
+  }, [documentTypeFilter, dateFieldFilter])
 
   useEffect(() => {
     clearTimeout(debounceRef.current)
@@ -607,7 +624,7 @@ export default function App() {
   useEffect(() => {
     if (mode === 'widget' && !widgetCaseNumber) return
     load(token, debouncedCaseSearch, debouncedDocumentSearch, tab, mode, widgetCaseNumber, dateFrom, dateTo, processingFilter, page, pageSize)
-  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo, processingFilter, debouncedCaseSearch, debouncedDocumentSearch, page, pageSize])
+  }, [token, load, tab, mode, widgetCaseNumber, dateFrom, dateTo, dateFieldFilter, documentTypeFilter, processingFilter, debouncedCaseSearch, debouncedDocumentSearch, page, pageSize])
 
   const activeItems = useMemo(() => {
     if (mode === 'widget') return widgetEvents
@@ -777,6 +794,18 @@ export default function App() {
               <button type="button" className="range-preset" onClick={() => applyDatePreset('thisMonth')}>Этот месяц</button>
             </div>
             <label className="range-field">
+              Тип документа
+              <select value={documentTypeFilter} onChange={(e) => { setDocumentTypeFilter(e.target.value); setPage(1) }}>
+                {DOCUMENT_TYPE_FILTER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+              </select>
+            </label>
+            <label className="range-field">
+              Фильтр дат по полю
+              <select value={dateFieldFilter} onChange={(e) => { setDateFieldFilter(e.target.value); setPage(1) }}>
+                {DATE_FIELD_FILTER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+              </select>
+            </label>
+            <label className="range-field">
               С
               <input type="datetime-local" value={dateFrom} onChange={(e) => { setDateFrom(applyMidnightDefault(e.target.value, dateFrom)); setPage(1) }} />
               <button type="button" className="range-now" onClick={() => setNow('from')}>Сейчас</button>
@@ -786,7 +815,7 @@ export default function App() {
               <input type="datetime-local" value={dateTo} onChange={(e) => { setDateTo(applyMidnightDefault(e.target.value, dateTo)); setPage(1) }} />
               <button type="button" className="range-now" onClick={() => setNow('to')}>Сейчас</button>
             </label>
-            <button type="button" className="range-reset" onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}>Сбросить</button>
+            <button type="button" className="range-reset" onClick={() => { setDateFrom(''); setDateTo(''); setDocumentTypeFilter('all'); setDateFieldFilter('find'); setPage(1) }}>Сбросить</button>
           </section>
         )}
 
@@ -810,7 +839,7 @@ export default function App() {
           )}
           <AnimatePresence mode="wait">
             {!loading && !error && visibleItems.length > 0 && (
-              <Motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${processingFilter}-${tab}-${pageSize}`}>
+              <Motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${processingFilter}-${documentTypeFilter}-${dateFieldFilter}-${tab}-${pageSize}`}>
                 {tab === 'events'
                   ? <GroupedHistoryList items={visibleItems} showCase showProcessingControl onProcessedChange={handleProcessedChange} />
                   : mode === 'widget'

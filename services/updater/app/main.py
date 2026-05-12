@@ -7,17 +7,24 @@ from fastapi import FastAPI, Header, HTTPException
 
 from .config import settings
 from .db import init_db
-from .sync_service import run_sync_with_logging, sync_casebook_all, sync_today_and_tomorrow
+from .sync_service import run_sync_with_logging, sync_casebook_all, sync_previous_half_hour, sync_today_and_tomorrow
 
 app = FastAPI(title='Casebook Updater Service')
 scheduler = BackgroundScheduler(timezone=ZoneInfo('Europe/Moscow'))
 logger = logging.getLogger('uvicorn.error')
 _full_sync_lock = Lock()
+_scheduled_sync_lock = Lock()
 _full_sync_running = False
 
 
 def scheduled_sync() -> None:
-    run_sync_with_logging('плановое', sync_today_and_tomorrow)
+    if not _scheduled_sync_lock.acquire(blocking=False):
+        logger.warning('Плановое обновление пропущено: предыдущий запуск ещё выполняется.')
+        return
+    try:
+        run_sync_with_logging('плановое (за предыдущие 30 минут)', sync_previous_half_hour)
+    finally:
+        _scheduled_sync_lock.release()
 
 
 def _run_full_sync_background() -> None:
@@ -38,10 +45,11 @@ def startup_event() -> None:
     init_db()
     scheduler.add_job(
         scheduled_sync,
-        trigger='cron',
-        hour=settings.scheduler_hour_msk,
-        minute=settings.scheduler_minute_msk,
-        id='daily_casebook_sync',
+        trigger='interval',
+        minutes=settings.scheduler_interval_minutes,
+        id='half_hour_casebook_sync',
+        max_instances=1,
+        coalesce=True,
         replace_existing=True,
     )
     scheduler.start()

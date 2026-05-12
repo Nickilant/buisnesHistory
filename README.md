@@ -1,7 +1,7 @@
 # Casebook + Bitrix24 Widget (3 микросервиса + PostgreSQL)
 
 Проект поднимает:
-- **updater-service** — отдельный backend для ежедневной загрузки данных из Casebook API (и ручного запуска).
+- **updater-service** — отдельный backend для регулярной загрузки данных из Casebook API (и ручного запуска).
 - **api-service** — backend для виджета (JWT, Bitrix install/uninstall/widget, выдача дел и истории).
 - **frontend-service** — UI виджета в светлой пастельной стилистике.
 - **PostgreSQL** — общая база данных.
@@ -59,18 +59,17 @@
 ## Пагинация Casebook API
 
 `updater` ходит по API до конца:
-- первая страница: `size=100&dateFrom=...&dateTo=...`
+- первая страница: `size=100&dateFrom=...&dateTo=...` (для планового запуска используются ISO-дата/время за предыдущие 30 минут)
 - следующие: добавляет `offset=<next>`.
 - если `next == null` (или отсутствует), цикл завершён.
 - последняя страница может быть пустой — это корректно.
 
 ## Планировщик
 
-По умолчанию: **каждый день в 23:50 Europe/Moscow**.
+По умолчанию: **каждые 30 минут**. Каждый плановый запуск запрашивает данные Casebook за предыдущие 30 минут.
 
-Параметры:
-- `SCHEDULER_HOUR_MSK`
-- `SCHEDULER_MINUTE_MSK`
+Параметр:
+- `SCHEDULER_INTERVAL_MINUTES`
 
 ## Ручной запуск обновления
 
@@ -114,6 +113,7 @@
 Защищённые (`Authorization: Bearer <token>`):
 - `GET /cases`
 - `GET /cases/{caseId}/history`
+- `GET /events/history` с фильтрами `document_type` (`Определение`, `Решение`, `Заявление`, `Дополнение к делу`, `Ходатайство`, `Прочее`) и `date_field` (`find` или `actual`)
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
 - `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)
@@ -158,8 +158,7 @@ CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
-SCHEDULER_HOUR_MSK=23
-SCHEDULER_MINUTE_MSK=50
+SCHEDULER_INTERVAL_MINUTES=30
 FULL_SYNC_SECRET=
 
 UPDATER_SERVICE_URL=http://updater:8001
@@ -351,8 +350,7 @@ CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
-SCHEDULER_HOUR_MSK=23
-SCHEDULER_MINUTE_MSK=50
+SCHEDULER_INTERVAL_MINUTES=30
 FULL_SYNC_SECRET=change-me-very-long-secret
 
 JWT_SECRET=very-long-random-secret
