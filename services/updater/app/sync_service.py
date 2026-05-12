@@ -85,6 +85,7 @@ def fetch_casebook(start_date: date | datetime | None = None, end_date: date | d
         if offset is not None:
             params['offset'] = offset
 
+        logger.info('Запрос Casebook: params=%s.', params)
         response = None
         for attempt in range(settings.casebook_retry_attempts + 1):
             response = requests.get(
@@ -251,6 +252,11 @@ def sync_today_and_tomorrow() -> dict[str, int]:
 def sync_previous_half_hour() -> dict[str, int]:
     end_utc = datetime.now(timezone.utc)
     start_utc = end_utc - timedelta(minutes=30)
+    logger.info(
+        'Диапазон планового обновления Casebook за предыдущие 30 минут: dateFrom=%s, dateTo=%s.',
+        start_utc.isoformat(),
+        end_utc.isoformat(),
+    )
     return sync_casebook_range(start_utc, end_utc)
 
 

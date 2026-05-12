@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     progress_log_every_items: int = 500
 
     scheduler_interval_minutes: int = 30
+    scheduler_run_on_startup: bool = True
 
     full_sync_secret: str | None = None
 

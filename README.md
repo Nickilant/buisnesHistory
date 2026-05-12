@@ -66,10 +66,11 @@
 
 ## Планировщик
 
-По умолчанию: **каждые 30 минут**. Каждый плановый запуск запрашивает данные Casebook за предыдущие 30 минут.
+По умолчанию: **каждые 30 минут**. Каждый плановый запуск запрашивает данные Casebook за предыдущие 30 минут. Чтобы после рестарта контейнера в логах сразу было видно работу планировщика, первый запуск выполняется при старте сервиса; это можно отключить через `SCHEDULER_RUN_ON_STARTUP=false`.
 
-Параметр:
+Параметры:
 - `SCHEDULER_INTERVAL_MINUTES`
+- `SCHEDULER_RUN_ON_STARTUP`
 
 ## Ручной запуск обновления
 
@@ -159,6 +160,7 @@ CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
 SCHEDULER_INTERVAL_MINUTES=30
+SCHEDULER_RUN_ON_STARTUP=true
 FULL_SYNC_SECRET=
 
 UPDATER_SERVICE_URL=http://updater:8001
@@ -351,6 +353,7 @@ CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
 SCHEDULER_INTERVAL_MINUTES=30
+SCHEDULER_RUN_ON_STARTUP=true
 FULL_SYNC_SECRET=change-me-very-long-secret
 
 JWT_SECRET=very-long-random-secret
