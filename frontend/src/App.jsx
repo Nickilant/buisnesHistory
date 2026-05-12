@@ -17,7 +17,7 @@ const DOCUMENT_TYPE_FILTER_OPTIONS = [
   { value: 'Решение', label: 'Решение' },
   { value: 'Заявление', label: 'Заявление' },
   { value: 'Дополнение к делу', label: 'Дополнение к делу' },
-  { value: 'Ходатайство', label: 'Ходатайство' },
+  { value: 'Ходатайства', label: 'Ходатайства' },
   { value: 'Прочее', label: 'Прочее' },
 ]
 const DATE_FIELD_FILTER_OPTIONS = [
@@ -180,6 +180,12 @@ async function apiPost(path, token, payload = {}) {
   return resp.json()
 }
 
+async function fetchDocumentAvailability(token, documents = []) {
+  if (!documents.length) return []
+  const payload = await apiPost('/documents/availability', token, { documents })
+  return payload?.documents || []
+}
+
 async function apiPatch(path, token, payload = {}) {
   const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
   const resp = await fetch(`${API_URL}${path}`, { method: 'PATCH', headers, body: JSON.stringify(payload) })
@@ -293,6 +299,13 @@ function logWidgetBootstrap(mode) {
   console.groupEnd()
 }
 
+function getDocumentAvailabilityKey(item) {
+  const eventDataId = item.eventDataId || item.caseId
+  const documentId = item.documentId
+  if (!eventDataId || !documentId) return null
+  return `${eventDataId}:${documentId}`
+}
+
 function buildDocumentLink(item) {
   const eventDataId = item.eventDataId || item.caseId
   const documentId = item.documentId
@@ -351,10 +364,46 @@ function HistoryRow({ item, index, showCase = false, actions }) {
   )
 }
 
-function GroupedHistoryList({ items, showCase = false, showProcessingControl = false, onProcessedChange }) {
+function GroupedHistoryList({ items, token, showCase = false, showProcessingControl = false, onProcessedChange }) {
   const groups = useMemo(() => buildDocumentGroups(items), [items])
   const [expandedKeys, setExpandedKeys] = useState({})
+  const [availabilityByKey, setAvailabilityByKey] = useState({})
   const toggleKey = (key) => setExpandedKeys((prev) => ({ ...prev, [key]: !prev[key] }))
+
+  useEffect(() => {
+    if (!token) return
+    const documentsToCheck = groups
+      .map((group) => group.representative)
+      .map((item) => ({ item, key: getDocumentAvailabilityKey(item) }))
+      .filter(({ key }) => key && availabilityByKey[key] === undefined)
+      .map(({ item, key }) => ({
+        key,
+        eventDataId: item.eventDataId || item.caseId,
+        documentId: item.documentId,
+      }))
+
+    if (!documentsToCheck.length) return
+
+    setAvailabilityByKey((prev) => ({
+      ...prev,
+      ...Object.fromEntries(documentsToCheck.map((doc) => [doc.key, 'checking'])),
+    }))
+
+    fetchDocumentAvailability(token, documentsToCheck)
+      .then((documents) => {
+        setAvailabilityByKey((prev) => ({
+          ...prev,
+          ...Object.fromEntries(documents.map((doc) => [doc.key, doc.status === 'unavailable' ? false : 'available'])),
+        }))
+      })
+      .catch((err) => {
+        console.warn('[Casebook app] Failed to check document availability', err)
+        setAvailabilityByKey((prev) => ({
+          ...prev,
+          ...Object.fromEntries(documentsToCheck.map((doc) => [doc.key, 'available'])),
+        }))
+      })
+  }, [groups, token, availabilityByKey])
 
   return groups.map((group, index) => {
     const rep = group.representative
@@ -362,6 +411,10 @@ function GroupedHistoryList({ items, showCase = false, showProcessingControl = f
     const groupKey = `${rep.caseId || 'no-case'}-${rep.documentId || 'no-document'}-${rep.contentTypeId || rep.contentTypeName || 'no-doc'}-${index}`
     const expanded = !!expandedKeys[groupKey]
     const docLink = buildDocumentLink(rep)
+    const docAvailabilityKey = getDocumentAvailabilityKey(rep)
+    const docAvailability = docAvailabilityKey ? availabilityByKey[docAvailabilityKey] : undefined
+    const isDocumentAvailable = docAvailability === true || docAvailability === 'available'
+    const isDocumentChecking = docAvailability === undefined || docAvailability === 'checking'
     const caseLink = showCase ? buildCaseLink(rep) : null
 
     const actions = (showProcessingControl || docLink || caseLink) ? (
@@ -382,10 +435,19 @@ function GroupedHistoryList({ items, showCase = false, showProcessingControl = f
             Открыть в КАД <ExternalLink size={12} />
           </a>
         )}
-        {docLink && (
+        {docLink && isDocumentAvailable && (
           <a className="doc-open-btn row-doc-link" href={docLink} target="_blank" rel="noreferrer" title="Открыть документ в КАД">
             Документ <FileText size={13} />
           </a>
+        )}
+        {docLink && !isDocumentAvailable && (
+          <span
+            className={`doc-open-btn row-doc-link disabled${isDocumentChecking ? ' checking' : ''}`}
+            title={isDocumentChecking ? 'Проверяем наличие документа в КАД' : 'Документ недоступен в КАД'}
+            aria-disabled="true"
+          >
+            {isDocumentChecking ? 'Проверка…' : 'Нет документа'} <FileText size={13} />
+          </span>
         )}
       </div>
     ) : null
@@ -470,7 +532,7 @@ function CaseItem({ item, token, index }) {
               {!loading && loaded && history.length === 0 && (
                 <div className="history-empty">История событий пуста</div>
               )}
-              {!loading && history.length > 0 && <GroupedHistoryList items={history} />}
+              {!loading && history.length > 0 && <GroupedHistoryList items={history} token={token} />}
             </div>
           </Motion.div>
         )}
@@ -841,9 +903,9 @@ export default function App() {
             {!loading && !error && visibleItems.length > 0 && (
               <Motion.div key={`page-${page}-${caseSearch}-${documentSearch}-${processingFilter}-${documentTypeFilter}-${dateFieldFilter}-${tab}-${pageSize}`}>
                 {tab === 'events'
-                  ? <GroupedHistoryList items={visibleItems} showCase showProcessingControl onProcessedChange={handleProcessedChange} />
+                  ? <GroupedHistoryList items={visibleItems} token={token} showCase showProcessingControl onProcessedChange={handleProcessedChange} />
                   : mode === 'widget'
-                    ? <GroupedHistoryList items={visibleItems} showProcessingControl onProcessedChange={handleProcessedChange} />
+                    ? <GroupedHistoryList items={visibleItems} token={token} showProcessingControl onProcessedChange={handleProcessedChange} />
                     : visibleItems.map((item, i) => <CaseItem key={item.caseId} item={item} token={token} index={i} />)
                 }
               </Motion.div>

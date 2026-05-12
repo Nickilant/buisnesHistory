@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from time import monotonic
 from urllib.parse import parse_qs, urlencode
 
 import requests
@@ -34,7 +36,8 @@ DATE_FILTER_FIELDS = {
     'find': DocumentEvent.find_date,
     'actual': DocumentEvent.actual_date,
 }
-DOCUMENT_TYPE_FILTER_VALUES = {'Определение', 'Решение', 'Заявление', 'Дополнение к делу', 'Ходатайство', 'Прочее'}
+DOCUMENT_TYPE_FILTER_VALUES = {'Определение', 'Решение', 'Заявление', 'Дополнение к делу', 'Ходатайства', 'Ходатайство', 'Прочее'}
+DOCUMENT_TYPE_ALIASES = {'Ходатайство': 'Ходатайства'}
 DOCUMENT_TYPE_PRIMARY_VALUES = DOCUMENT_TYPE_FILTER_VALUES - {'Прочее'}
 
 
@@ -58,10 +61,11 @@ def apply_document_type_filter(stmt, document_type: str | None):
     if document_type not in DOCUMENT_TYPE_FILTER_VALUES:
         raise HTTPException(status_code=400, detail='Invalid document_type filter')
 
+    normalized_document_type = DOCUMENT_TYPE_ALIASES.get(document_type, document_type)
     type_expr = func.trim(func.split_part(ContentType.name, ':', 1))
-    if document_type == 'Прочее':
+    if normalized_document_type == 'Прочее':
         return stmt.where(type_expr.notin_(DOCUMENT_TYPE_PRIMARY_VALUES))
-    return stmt.where(type_expr == document_type)
+    return stmt.where(type_expr == normalized_document_type)
 
 
 def apply_date_range_filter(stmt, date_column, date_from: str | None, date_to: str | None):
@@ -92,6 +96,62 @@ def apply_processing_filter(stmt, processed: str):
     if processed == 'unprocessed':
         return stmt.where(func.coalesce(DocumentStatus.is_processed, False).is_(False))
     return stmt
+
+
+DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS = 60 * 60
+DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS = 5000
+_document_availability_cache: dict[str, tuple[float, str]] = {}
+
+
+def build_casebook_document_url(case_id: str, document_id: str) -> str:
+    base_url = settings.casebook_api_url.split('/tracking/', 1)[0].rstrip('/')
+    return f'{base_url}/cases/{case_id}/documents/{document_id}'
+
+
+def build_casebook_headers() -> dict[str, str]:
+    headers = {'accept': 'application/json'}
+    if not settings.casebook_api_key:
+        return headers
+
+    scheme = settings.casebook_auth_scheme.lower()
+    if scheme in {'auto', 'apikey'}:
+        headers['apikey'] = settings.casebook_api_key
+        headers['apiversion'] = settings.casebook_api_version
+    if scheme in {'auto', 'bearer'}:
+        headers['Authorization'] = f'Bearer {settings.casebook_api_key}'
+    return headers
+
+
+def detect_casebook_document_availability(payload: dict) -> str:
+    file_name = payload.get('fileName')
+    if isinstance(file_name, str):
+        return 'available' if file_name.strip() else 'unavailable'
+    return 'unknown'
+
+
+def check_casebook_document_available(case_id: str, document_id: str) -> str:
+    url = build_casebook_document_url(case_id, document_id)
+    now = monotonic()
+    cached = _document_availability_cache.get(url)
+    if cached and now - cached[0] < DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    status = 'unknown'
+    try:
+        response = requests.get(url, headers=build_casebook_headers(), timeout=(2, 8))
+        if response.status_code == 404:
+            status = 'unavailable'
+        else:
+            response.raise_for_status()
+            status = detect_casebook_document_availability(response.json())
+    except (RequestException, ValueError):
+        status = 'unknown'
+
+    if len(_document_availability_cache) >= DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS:
+        oldest_key = min(_document_availability_cache, key=lambda key: _document_availability_cache[key][0])
+        _document_availability_cache.pop(oldest_key, None)
+    _document_availability_cache[url] = (now, status)
+    return status
 
 
 async def read_payload(request: Request) -> dict[str, str]:
@@ -498,6 +558,55 @@ def case_history(case_external_id: str, processed: str | None = None, _: dict = 
         }
         for event, content, is_processed in rows
     ]
+
+
+@app.post('/documents/availability')
+def documents_availability(payload: dict, _: dict = Depends(require_auth)):
+    documents = payload.get('documents')
+    if not isinstance(documents, list):
+        raise HTTPException(status_code=400, detail='documents list is required')
+
+    normalized_documents = []
+    seen_keys: set[str] = set()
+    for document in documents[:50]:
+        if not isinstance(document, dict):
+            continue
+        event_data_id = str(document.get('eventDataId') or '').strip()
+        document_id = str(document.get('documentId') or '').strip()
+        if not event_data_id or not document_id:
+            continue
+        key = f'{event_data_id}:{document_id}'
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        normalized_documents.append((key, event_data_id, document_id))
+
+    results: dict[str, str] = {}
+    if normalized_documents:
+        with ThreadPoolExecutor(max_workers=min(6, len(normalized_documents))) as executor:
+            future_map = {
+                executor.submit(check_casebook_document_available, event_data_id, document_id): key
+                for key, event_data_id, document_id in normalized_documents
+            }
+            for future in as_completed(future_map):
+                key = future_map[future]
+                try:
+                    results[key] = future.result()
+                except Exception:
+                    results[key] = 'unknown'
+
+    return {
+        'documents': [
+            {
+                'key': key,
+                'eventDataId': event_data_id,
+                'documentId': document_id,
+                'available': results.get(key) == 'available',
+                'status': results.get(key, 'unknown'),
+            }
+            for key, event_data_id, document_id in normalized_documents
+        ]
+    }
 
 
 @app.patch('/documents/status')

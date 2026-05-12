@@ -49,6 +49,10 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
       UPDATER_SERVICE_URL: ${UPDATER_SERVICE_URL:-http://updater:8001}
       FULL_SYNC_SECRET: ${FULL_SYNC_SECRET:-}
+      CASEBOOK_API_URL: ${CASEBOOK_API_URL:-https://api3.casebook.ru/arbitrage/tracking/events/documents}
+      CASEBOOK_API_KEY: ${CASEBOOK_API_KEY}
+      CASEBOOK_API_VERSION: ${CASEBOOK_API_VERSION:-2}
+      CASEBOOK_AUTH_SCHEME: ${CASEBOOK_AUTH_SCHEME:-auto}
     depends_on:
       postgres:
         condition: service_healthy

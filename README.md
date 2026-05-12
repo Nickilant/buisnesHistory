@@ -114,7 +114,8 @@
 Защищённые (`Authorization: Bearer <token>`):
 - `GET /cases`
 - `GET /cases/{caseId}/history`
-- `GET /events/history` с фильтрами `document_type` (`Определение`, `Решение`, `Заявление`, `Дополнение к делу`, `Ходатайство`, `Прочее`) и `date_field` (`find` или `actual`)
+- `GET /events/history` с фильтрами `document_type` (`Определение`, `Решение`, `Заявление`, `Дополнение к делу`, `Ходатайства`, `Прочее`) и `date_field` (`find` или `actual`)
+- `POST /documents/availability` — неблокирующая проверка наличия PDF через Casebook API `GET /arbitrage/cases/{caseId}/documents/{documentId}`; если `fileName` пустой, кнопка документа отключается, если `fileName` заполнен — ссылка остаётся кликабельной; результат кэшируется на 1 час.
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
 - `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)
