@@ -108,7 +108,7 @@ def build_kad_document_url(event_data_id: str, document_id: str) -> str:
 
 
 def read_first_response_chunk(response: requests.Response) -> bytes:
-    for chunk in response.iter_content(chunk_size=8):
+    for chunk in response.iter_content(chunk_size=16):
         if chunk:
             return chunk
     return b''
@@ -125,10 +125,31 @@ def detect_document_availability(response: requests.Response, first_chunk: bytes
         return 'unavailable'
 
     content_type = (response.headers.get('content-type') or '').lower()
+    content_disposition = (response.headers.get('content-disposition') or '').lower()
     if first_chunk.startswith(b'%PDF') or 'application/pdf' in content_type:
         return 'available'
+    if 'attachment' in content_disposition and len(first_chunk) <= 16:
+        return 'unavailable'
 
     return 'unknown'
+
+
+def probe_kad_document_response(session: requests.Session, url: str) -> str:
+    headers = {
+        'Accept': 'application/pdf,*/*',
+        'Origin': 'https://kad.arbitr.ru',
+        'Referer': 'https://kad.arbitr.ru/',
+        'X-Requested-With': 'XMLHttpRequest',
+    }
+    response = session.post(url, headers=headers, stream=True, timeout=(2, 8), allow_redirects=True)
+    with response:
+        if response.status_code not in {200, 206}:
+            return detect_document_availability(response)
+        try:
+            first_chunk = read_first_response_chunk(response)
+        except RequestException:
+            return 'unavailable'
+        return detect_document_availability(response, first_chunk)
 
 
 def check_kad_document_available(event_data_id: str, document_id: str) -> str:
@@ -138,13 +159,11 @@ def check_kad_document_available(event_data_id: str, document_id: str) -> str:
     if cached and now - cached[0] < DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS:
         return cached[1]
 
-    headers = {'Accept': 'application/pdf,*/*', 'Range': 'bytes=0-7'}
     status = 'unknown'
     try:
-        response = requests.post(url, headers=headers, stream=True, timeout=(2, 5), allow_redirects=True)
-        with response:
-            first_chunk = read_first_response_chunk(response) if response.status_code in {200, 206} else b''
-            status = detect_document_availability(response, first_chunk)
+        with requests.Session() as session:
+            session.get(url, headers={'Accept': 'text/html,*/*'}, timeout=(2, 5), allow_redirects=True)
+            status = probe_kad_document_response(session, url)
     except RequestException:
         status = 'unknown'
 
