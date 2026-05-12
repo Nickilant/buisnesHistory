@@ -4,6 +4,7 @@ import logging
 from time import sleep
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from dateutil import parser
@@ -14,6 +15,15 @@ from .config import settings
 from .db import Case, ContentType, DocumentEvent, SessionLocal
 
 logger = logging.getLogger('uvicorn.error')
+CASEBOOK_DATE_TIMEZONE = ZoneInfo('Europe/Moscow')
+
+
+def _format_casebook_date_param(value: date | datetime) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(CASEBOOK_DATE_TIMEZONE)
+        return value.replace(tzinfo=None, microsecond=0).isoformat(timespec='seconds')
+    return value.isoformat()
 
 
 def _to_dt(value: str | None):
@@ -69,7 +79,7 @@ def _retry_delay_seconds(attempt: int, retry_after: str | None) -> float:
     return min(delay, settings.casebook_retry_max_delay_seconds)
 
 
-def fetch_casebook(start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
+def fetch_casebook(start_date: date | datetime | None = None, end_date: date | datetime | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
     page_number = 0
@@ -79,12 +89,13 @@ def fetch_casebook(start_date: date | None = None, end_date: date | None = None)
             'size': settings.page_size,
         }
         if start_date is not None:
-            params['dateFrom'] = start_date.isoformat()
+            params['dateFrom'] = _format_casebook_date_param(start_date)
         if end_date is not None:
-            params['dateTo'] = end_date.isoformat()
+            params['dateTo'] = _format_casebook_date_param(end_date)
         if offset is not None:
             params['offset'] = offset
 
+        logger.info('Запрос Casebook: params=%s.', params)
         response = None
         for attempt in range(settings.casebook_retry_attempts + 1):
             response = requests.get(
@@ -232,7 +243,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def sync_casebook_range(start_date: date, end_date: date) -> dict[str, int]:
+def sync_casebook_range(start_date: date | datetime, end_date: date | datetime) -> dict[str, int]:
     payload_items = fetch_casebook(start_date, end_date)
     return _sync_payload_items(payload_items)
 
@@ -246,6 +257,17 @@ def sync_today_and_tomorrow() -> dict[str, int]:
     today_utc = datetime.now(timezone.utc).date()
     tomorrow_utc = today_utc + timedelta(days=1)
     return sync_casebook_range(today_utc, tomorrow_utc)
+
+
+def sync_previous_half_hour() -> dict[str, int]:
+    end_msk = datetime.now(CASEBOOK_DATE_TIMEZONE)
+    start_msk = end_msk - timedelta(minutes=30)
+    logger.info(
+        'Диапазон планового обновления Casebook за предыдущие 30 минут: dateFrom=%s, dateTo=%s.',
+        _format_casebook_date_param(start_msk),
+        _format_casebook_date_param(end_msk),
+    )
+    return sync_casebook_range(start_msk, end_msk)
 
 
 def run_sync_with_logging(sync_kind: str, runner: Any) -> dict[str, int]:
