@@ -154,6 +154,8 @@ DATABASE_URL=postgresql+psycopg2://app:app@postgres:5432/casebook
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
 CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
+# auto/apikey отправляет только apikey, как в curl-примере Casebook;
+# apikey_versioned добавляет apiversion; bearer отправляет Authorization.
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 CASEBOOK_RETRY_ATTEMPTS=8
@@ -267,7 +269,12 @@ curl -X POST http://localhost:8000/admin/sync/full \
 
 Если получаете `401 Unauthorized` от Casebook:
 - проверьте `CASEBOOK_API_KEY`;
-- попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
+- по умолчанию `CASEBOOK_AUTH_SCHEME=auto` отправляет только заголовок `apikey`, как в curl-примере Casebook для `/arbitrage/tracking/events/documents`;
+- если ваш доступ требует другую схему, попробуйте `CASEBOOK_AUTH_SCHEME=apikey_versioned` (добавляет `apiversion`) или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
+
+Если плановый запрос Casebook за 30 минут пишет `получено_в_странице=0`, но тот же curl с одним `apikey` возвращает данные:
+- проверьте, что используется актуальный образ; раньше режим `auto` смешивал `apikey`, `apiversion` и `Authorization`, из-за чего endpoint мог вернуть успешный, но пустой ответ;
+- оставьте `CASEBOOK_AUTH_SCHEME=auto` или `CASEBOOK_AUTH_SCHEME=apikey`, чтобы запрос совпадал с рабочим curl.
 
 Если получаете `429 Too Many Requests` от Casebook:
 - это лимит API, updater теперь делает авто-повторы с backoff;
@@ -347,6 +354,8 @@ DATABASE_URL=postgresql+psycopg2://app:strong_password_here@postgres:5432/casebo
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
 CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
 CASEBOOK_API_VERSION=2
+# auto/apikey отправляет только apikey, как в curl-примере Casebook;
+# apikey_versioned добавляет apiversion; bearer отправляет Authorization.
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 CASEBOOK_RETRY_ATTEMPTS=8

@@ -56,20 +56,28 @@ def _to_bool(value: Any) -> bool:
 
 
 def _build_casebook_headers() -> dict[str, str]:
-    """
-    Supports multiple auth styles used by Casebook deployments:
-    - legacy headers: apikey/apiversion
-    - bearer token in Authorization
+    """Build Casebook auth headers.
+
+    Do not send several auth schemes at once: Casebook can return a successful
+    but empty response when `apikey`, `apiversion`, and `Authorization` are
+    mixed for the tracking endpoint.  The default `auto` mode intentionally
+    mirrors the documented curl example for this endpoint: only `apikey`.
     """
     scheme = settings.casebook_auth_scheme.lower()
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {'accept': 'application/json'}
 
     if scheme in {'auto', 'apikey'}:
         headers['apikey'] = settings.casebook_api_key
+    elif scheme in {'apikey_versioned', 'apikey-versioned', 'legacy'}:
+        headers['apikey'] = settings.casebook_api_key
         headers['apiversion'] = settings.casebook_api_version
-
-    if scheme in {'auto', 'bearer'}:
+    elif scheme == 'bearer':
         headers['Authorization'] = f'Bearer {settings.casebook_api_key}'
+    else:
+        raise RuntimeError(
+            'Неизвестная схема авторизации CASEBOOK_AUTH_SCHEME. '
+            'Допустимые значения: auto, apikey, apikey_versioned, bearer.'
+        )
 
     return headers
 
@@ -119,7 +127,7 @@ def fetch_casebook(start_date: date | datetime | None = None, end_date: date | d
                 if response.status_code == 401:
                     raise RuntimeError(
                         'Casebook вернул 401 Unauthorized. Проверьте CASEBOOK_API_KEY и схему '
-                        'авторизации CASEBOOK_AUTH_SCHEME (auto/apikey/bearer).'
+                        'авторизации CASEBOOK_AUTH_SCHEME (auto/apikey/apikey_versioned/bearer).'
                     ) from exc
 
                 is_retryable = response.status_code == 429 or response.status_code >= 500
