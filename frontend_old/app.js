@@ -81,14 +81,15 @@ async function fetchHistory(token, caseId) {
 
 function createHistoryRow(item) {
   const row = document.createElement('div');
-  row.className = 'history-row';
+  row.className = `history-row${item.isDeleted ? ' deleted' : ''}`;
   row.innerHTML = `
+    ${item.isDeleted ? '<span class="deleted-badge">Было удалено</span>' : ''}
     <div class="history-cell">
-      <span class="history-label">Найдено</span>
+      <span class="history-label">Дата изменения</span>
       <span>${formatDate(item.findDate)}</span>
     </div>
     <div class="history-cell">
-      <span class="history-label">Актуально</span>
+      <span class="history-label">Дата документа</span>
       <span>${formatDate(item.actualDate)}</span>
     </div>
     <div class="history-cell">

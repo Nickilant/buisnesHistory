@@ -36,9 +36,17 @@ class DocumentEvent(Base):
     event_type: Mapped[str] = mapped_column(String(32), index=True)
     find_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     actual_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default='false')
     raw_item: Mapped[dict] = mapped_column(JSON)
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def _ensure_document_events_is_deleted_column(conn) -> None:
+    conn.exec_driver_sql("ALTER TABLE document_events ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false")
+    conn.exec_driver_sql("UPDATE document_events SET is_deleted = false WHERE is_deleted IS NULL")
+    conn.exec_driver_sql("ALTER TABLE document_events ALTER COLUMN is_deleted SET DEFAULT false")
+    conn.exec_driver_sql("ALTER TABLE document_events ALTER COLUMN is_deleted SET NOT NULL")
 
 
 class ContentType(Base):
@@ -89,6 +97,7 @@ def init_db(max_attempts: int = 10, retry_delay_seconds: int = 3) -> None:
                 conn.exec_driver_sql('SELECT pg_advisory_lock(214748364)')
                 try:
                     Base.metadata.create_all(bind=conn)
+                    _ensure_document_events_is_deleted_column(conn)
                 finally:
                     conn.exec_driver_sql('SELECT pg_advisory_unlock(214748364)')
             return

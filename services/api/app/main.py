@@ -497,6 +497,7 @@ def events_history(
                 'caseLink': f'https://kad.arbitr.ru/Card/{case_id}',
                 'findDate': event.find_date.isoformat() if event.find_date else None,
                 'actualDate': event.actual_date.isoformat() if event.actual_date else None,
+                'isDeleted': event.is_deleted,
                 'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
                 'contentTypeName': content.name,
                 'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_id,
@@ -549,6 +550,7 @@ def case_history(case_external_id: str, processed: str | None = None, _: dict = 
         {
             'findDate': event.find_date.isoformat() if event.find_date else None,
             'actualDate': event.actual_date.isoformat() if event.actual_date else None,
+            'isDeleted': event.is_deleted,
             'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
             'contentTypeName': content.name,
             'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_external_id,

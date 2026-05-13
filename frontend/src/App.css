@@ -255,7 +255,9 @@ body {
 @media (max-width: 700px) { .range-panel { flex-direction: column; align-items: stretch; } .range-presets { width: 100%; } }
 
 /* ── Document groups ─────────────────────────────────── */
-.history-doc-group { margin-bottom: 10px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border2); }
+.history-doc-group { position: relative; margin-bottom: 10px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border2); }
+.history-doc-group.deleted { border-color: rgba(239,68,68,0.32); }
+.deleted-badge { position: absolute; top: 6px; right: 8px; z-index: 2; padding: 2px 7px; border-radius: 999px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); color: #b42318; font-size: 10px; font-weight: 800; letter-spacing: 0.2px; pointer-events: none; }
 .history-doc-toggle { width: 100%; text-align: left; background: transparent; border: none; padding: 0; border-radius: var(--r-md); }
 .history-doc-toggle.expandable { cursor: pointer; }
 .history-doc-toggle.expandable:hover { background: rgba(91,130,245,0.04); }
