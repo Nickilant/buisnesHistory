@@ -507,5 +507,18 @@ body {
   .date-range-row { flex-wrap: wrap; }
 }
 
+/* ── Document groups ─────────────────────────────────── */
+.history-doc-group { position: relative; margin-bottom: 10px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border2); }
+.history-doc-group.deleted { border-color: rgba(239,68,68,0.32); }
+.deleted-badge { position: absolute; top: 6px; right: 8px; z-index: 2; padding: 2px 7px; border-radius: 999px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); color: #b42318; font-size: 10px; font-weight: 800; letter-spacing: 0.2px; pointer-events: none; }
+.history-doc-toggle { width: 100%; text-align: left; background: transparent; border: none; padding: 0; border-radius: var(--r-md); }
+.history-doc-toggle.expandable { cursor: pointer; }
+.history-doc-toggle.expandable:hover { background: rgba(91,130,245,0.04); }
+
+.history-doc-expanded { border-top: 2px solid rgba(91,130,245,0.18); background: rgba(240,245,255,0.55); padding: 4px 0; position: relative; }
+.history-doc-expanded::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: linear-gradient(180deg, var(--accent) 0%, var(--accent2) 100%); border-radius: 0 0 0 var(--r-md); opacity: 0.45; }
+.history-doc-expanded .history-row { border-bottom: 1px solid rgba(180,200,255,0.3); margin: 0; padding-left: 22px; }
+.history-doc-expanded .history-row:last-child { border-bottom: none; }
+
 /* Legacy range-panel (keep for compatibility) */
 .range-panel { display: none; }
