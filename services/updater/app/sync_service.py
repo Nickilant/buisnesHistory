@@ -277,11 +277,11 @@ def sync_today_and_tomorrow() -> dict[str, int]:
     return sync_casebook_range(today_utc, tomorrow_utc)
 
 
-def sync_previous_half_hour() -> dict[str, int]:
+def sync_previous_twelve_hours() -> dict[str, int]:
     end_msk = datetime.now(CASEBOOK_DATE_TIMEZONE)
-    start_msk = end_msk - timedelta(minutes=30)
+    start_msk = end_msk - timedelta(hours=12)
     logger.info(
-        'Диапазон планового обновления Casebook за предыдущие 30 минут: dateFrom=%s, dateTo=%s.',
+        'Диапазон планового обновления Casebook за предыдущие 12 часов: dateFrom=%s, dateTo=%s.',
         _format_casebook_date_param(start_msk),
         _format_casebook_date_param(end_msk),
     )

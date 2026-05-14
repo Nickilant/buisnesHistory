@@ -9,7 +9,7 @@ from fastapi import FastAPI, Header, HTTPException
 
 from .config import settings
 from .db import init_db
-from .sync_service import run_sync_with_logging, sync_casebook_all, sync_previous_half_hour, sync_today_and_tomorrow
+from .sync_service import run_sync_with_logging, sync_casebook_all, sync_previous_twelve_hours, sync_today_and_tomorrow
 
 app = FastAPI(title='Casebook Updater Service')
 SCHEDULER_TIMEZONE = ZoneInfo('Europe/Moscow')
@@ -26,7 +26,7 @@ def scheduled_sync() -> None:
         logger.warning('Плановое обновление пропущено: предыдущий запуск ещё выполняется.')
         return
     try:
-        run_sync_with_logging('плановое (за предыдущие 30 минут)', sync_previous_half_hour)
+        run_sync_with_logging('плановое (за предыдущие 12 часов)', sync_previous_twelve_hours)
     finally:
         _scheduled_sync_lock.release()
         logger.info('Плановое обновление Casebook: lock освобождён.')
@@ -76,18 +76,21 @@ def startup_event() -> None:
     init_db()
     first_run_at = datetime.now(SCHEDULER_TIMEZONE) if settings.scheduler_run_on_startup else None
     logger.info(
-        'Настройка планового обновления Casebook: interval_minutes=%s, run_on_startup=%s, timezone=%s.',
-        settings.scheduler_interval_minutes,
+        'Настройка планового обновления Casebook: hours_msk=%s, minute_msk=%s, run_on_startup=%s, timezone=%s.',
+        settings.scheduler_hours_msk,
+        settings.scheduler_minute_msk,
         settings.scheduler_run_on_startup,
         SCHEDULER_TIMEZONE,
     )
     scheduler.add_listener(log_scheduler_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED)
     job = scheduler.add_job(
         scheduled_sync,
-        trigger='interval',
-        minutes=settings.scheduler_interval_minutes,
+        trigger='cron',
+        hour=settings.scheduler_hours_msk,
+        minute=settings.scheduler_minute_msk,
+        second=0,
         next_run_time=first_run_at,
-        id='half_hour_casebook_sync',
+        id='twelve_hour_casebook_sync',
         max_instances=1,
         coalesce=True,
         replace_existing=True,
