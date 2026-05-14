@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { motion as Motion, AnimatePresence } from 'framer-motion'
-import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap } from 'lucide-react'
+import { Search, ExternalLink, ChevronDown, Scale, Clock, FileText, Zap, Calendar, Filter, SlidersHorizontal } from 'lucide-react'
 import './App.css'
 
 const API_URL = window.__API_URL__ || '/api'
@@ -139,6 +139,12 @@ function formatDate(value) {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit'
   })
+}
+
+function formatDateShort(value) {
+  if (!value) return null
+  const d = new Date(value)
+  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function normalizeEventType(value) {
@@ -592,6 +598,145 @@ function applyMidnightDefault(value, previousValue) {
   return value
 }
 
+/* ── Filter Panel Component ──────────────────────────── */
+function FilterPanel({
+  dateFrom, dateTo, documentTypeFilter, dateFieldFilter,
+  onDateFromChange, onDateToChange, onDocumentTypeChange, onDateFieldChange,
+  onPreset, onReset, onNow,
+}) {
+  // Build active filter tags for the strip
+  const activeTags = []
+  if (dateFrom) activeTags.push({ key: 'from', label: `С ${formatDateShort(dateFrom)}`, onRemove: () => onDateFromChange('') })
+  if (dateTo) activeTags.push({ key: 'to', label: `По ${formatDateShort(dateTo)}`, onRemove: () => onDateToChange('') })
+  if (documentTypeFilter !== 'all') {
+    const opt = DOCUMENT_TYPE_FILTER_OPTIONS.find(o => o.value === documentTypeFilter)
+    activeTags.push({ key: 'doctype', label: opt?.label || documentTypeFilter, onRemove: () => onDocumentTypeChange('all') })
+  }
+  if (dateFieldFilter !== 'find') {
+    const opt = DATE_FIELD_FILTER_OPTIONS.find(o => o.value === dateFieldFilter)
+    activeTags.push({ key: 'datefield', label: opt?.label || dateFieldFilter, onRemove: () => onDateFieldChange('find') })
+  }
+
+  return (
+    <Motion.section
+      className="filter-panel"
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+    >
+      <div className="filter-panel-body">
+
+        {/* Zone 1 – Quick presets */}
+        <div className="filter-section">
+          <span className="filter-section-label">
+            <Zap size={11} />
+            Быстрый выбор
+          </span>
+          <div className="filter-presets">
+            <button type="button" className="preset-btn" onClick={() => onPreset('today')}>Сегодня</button>
+            <button type="button" className="preset-btn" onClick={() => onPreset('last7')}>7 дней</button>
+            <button type="button" className="preset-btn" onClick={() => onPreset('thisMonth')}>Этот месяц</button>
+            <button type="button" className="reset-btn" onClick={onReset} title="Сбросить все фильтры">Сбросить</button>
+          </div>
+        </div>
+
+        <div className="filter-sep" />
+
+        {/* Zone 2 – Select filters */}
+        <div className="filter-section">
+          <span className="filter-section-label">
+            <SlidersHorizontal size={11} />
+            Фильтры
+          </span>
+          <div className="filter-selects">
+            <div className="filter-select-row">
+              <span className="filter-select-name">Тип</span>
+              <select
+                className="filter-select"
+                value={documentTypeFilter}
+                onChange={(e) => onDocumentTypeChange(e.target.value)}
+              >
+                {DOCUMENT_TYPE_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="filter-select-row">
+              <span className="filter-select-name">Поле дат</span>
+              <select
+                className="filter-select"
+                value={dateFieldFilter}
+                onChange={(e) => onDateFieldChange(e.target.value)}
+              >
+                {DATE_FIELD_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="filter-sep" />
+
+        {/* Zone 3 – Date range */}
+        <div className="filter-section">
+          <span className="filter-section-label">
+            <Calendar size={11} />
+            Диапазон дат
+          </span>
+          <div className="filter-dates">
+            <div className="date-range-row">
+              <span className="date-range-label">С</span>
+              <input
+                type="datetime-local"
+                className="date-input"
+                value={dateFrom}
+                onChange={(e) => onDateFromChange(applyMidnightDefault(e.target.value, dateFrom))}
+              />
+              <button type="button" className="now-btn" onClick={() => onNow('from')}>Сейчас</button>
+            </div>
+            <div className="date-range-row">
+              <span className="date-range-label">По</span>
+              <input
+                type="datetime-local"
+                className="date-input"
+                value={dateTo}
+                onChange={(e) => onDateToChange(applyMidnightDefault(e.target.value, dateTo))}
+              />
+              <button type="button" className="now-btn" onClick={() => onNow('to')}>Сейчас</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Active filter tags strip */}
+      <AnimatePresence>
+        {activeTags.length > 0 && (
+          <Motion.div
+            className="filter-panel-active-strip"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <span className="active-filters-label">
+              <Filter size={10} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+              Активно:
+            </span>
+            {activeTags.map((tag) => (
+              <span key={tag.key} className="active-filter-tag">
+                {tag.label}
+                <button type="button" onClick={tag.onRemove} aria-label={`Снять фильтр ${tag.label}`}>×</button>
+              </span>
+            ))}
+          </Motion.div>
+        )}
+      </AnimatePresence>
+    </Motion.section>
+  )
+}
+
 export default function App() {
   const [token, setToken] = useState(null)
   const [cases, setCases] = useState([])
@@ -699,9 +844,8 @@ export default function App() {
 
   const setNow = (target) => {
     const now = toDateTimeLocalValue(new Date())
-    if (target === 'from') setDateFrom(now)
-    if (target === 'to') setDateTo(now)
-    setPage(1)
+    if (target === 'from') { setDateFrom(now); setPage(1) }
+    if (target === 'to') { setDateTo(now); setPage(1) }
   }
 
   const applyDatePreset = (preset) => {
@@ -713,6 +857,14 @@ export default function App() {
     if (preset === 'thisMonth') { from = toDateTimeLocalValue(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0)) }
     setDateFrom(from)
     setDateTo(to)
+    setPage(1)
+  }
+
+  const handleReset = () => {
+    setDateFrom('')
+    setDateTo('')
+    setDocumentTypeFilter('all')
+    setDateFieldFilter('find')
     setPage(1)
   }
 
@@ -850,37 +1002,21 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Redesigned filter panel ── */}
         {mode === 'local' && tab === 'events' && (
-          <section className="range-panel">
-            <div className="range-presets">
-              <button type="button" className="range-preset" onClick={() => applyDatePreset('today')}>Сегодня</button>
-              <button type="button" className="range-preset" onClick={() => applyDatePreset('last7')}>7 дней</button>
-              <button type="button" className="range-preset" onClick={() => applyDatePreset('thisMonth')}>Этот месяц</button>
-            </div>
-            <label className="range-field">
-              Тип документа
-              <select value={documentTypeFilter} onChange={(e) => { setDocumentTypeFilter(e.target.value); setPage(1) }}>
-                {DOCUMENT_TYPE_FILTER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-            </label>
-            <label className="range-field">
-              Фильтр дат по полю
-              <select value={dateFieldFilter} onChange={(e) => { setDateFieldFilter(e.target.value); setPage(1) }}>
-                {DATE_FIELD_FILTER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-            </label>
-            <label className="range-field">
-              С
-              <input type="datetime-local" value={dateFrom} onChange={(e) => { setDateFrom(applyMidnightDefault(e.target.value, dateFrom)); setPage(1) }} />
-              <button type="button" className="range-now" onClick={() => setNow('from')}>Сейчас</button>
-            </label>
-            <label className="range-field">
-              По
-              <input type="datetime-local" value={dateTo} onChange={(e) => { setDateTo(applyMidnightDefault(e.target.value, dateTo)); setPage(1) }} />
-              <button type="button" className="range-now" onClick={() => setNow('to')}>Сейчас</button>
-            </label>
-            <button type="button" className="range-reset" onClick={() => { setDateFrom(''); setDateTo(''); setDocumentTypeFilter('all'); setDateFieldFilter('find'); setPage(1) }}>Сбросить</button>
-          </section>
+          <FilterPanel
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            documentTypeFilter={documentTypeFilter}
+            dateFieldFilter={dateFieldFilter}
+            onDateFromChange={(v) => { setDateFrom(v); setPage(1) }}
+            onDateToChange={(v) => { setDateTo(v); setPage(1) }}
+            onDocumentTypeChange={(v) => { setDocumentTypeFilter(v); setPage(1) }}
+            onDateFieldChange={(v) => { setDateFieldFilter(v); setPage(1) }}
+            onPreset={applyDatePreset}
+            onReset={handleReset}
+            onNow={setNow}
+          />
         )}
 
         <main className="main">
