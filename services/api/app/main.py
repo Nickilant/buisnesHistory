@@ -116,9 +116,17 @@ def build_casebook_headers() -> dict[str, str]:
     scheme = settings.casebook_auth_scheme.lower()
     if scheme in {'auto', 'apikey'}:
         headers['apikey'] = settings.casebook_api_key
+    elif scheme in {'apikey_versioned', 'apikey-versioned', 'legacy'}:
+        headers['apikey'] = settings.casebook_api_key
         headers['apiversion'] = settings.casebook_api_version
-    if scheme in {'auto', 'bearer'}:
+    elif scheme == 'bearer':
         headers['Authorization'] = f'Bearer {settings.casebook_api_key}'
+    else:
+        raise RuntimeError(
+            'Неизвестная схема авторизации CASEBOOK_AUTH_SCHEME. '
+            'Допустимые значения: auto, apikey, apikey_versioned, bearer.'
+        )
+
     return headers
 
 

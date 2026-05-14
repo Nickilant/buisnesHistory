@@ -59,18 +59,19 @@
 ## Пагинация Casebook API
 
 `updater` ходит по API до конца:
-- первая страница: `size=100&dateFrom=...&dateTo=...` (для планового запуска используются ISO-дата/время за предыдущие 30 минут в формате Casebook без timezone и микросекунд: `YYYY-MM-DDTHH:mm:ss`)
+- первая страница: `size=100&dateFrom=...&dateTo=...` (для планового запуска используются ISO-дата/время за предыдущие 12 часов в формате Casebook без timezone и микросекунд: `YYYY-MM-DDTHH:mm:ss`)
 - следующие: добавляет `offset=<next>`.
 - если `next == null` (или отсутствует), цикл завершён.
 - последняя страница может быть пустой — это корректно.
 
 ## Планировщик
 
-По умолчанию: **каждые 30 минут**. Каждый плановый запуск запрашивает данные Casebook за предыдущие 30 минут. Чтобы после рестарта контейнера в логах сразу было видно работу планировщика, первый запуск выполняется при старте сервиса; это можно отключить через `SCHEDULER_RUN_ON_STARTUP=false`.
+По умолчанию: **в 00:00 и 12:00 по Москве**. Каждый плановый запуск запрашивает данные Casebook за предыдущие 12 часов. Автозапуск при старте контейнера по умолчанию выключен, чтобы обновления шли только по расписанию; при необходимости его можно включить через `SCHEDULER_RUN_ON_STARTUP=true`.
 
 Параметры:
-- `SCHEDULER_INTERVAL_MINUTES`
-- `SCHEDULER_RUN_ON_STARTUP`
+- `SCHEDULER_HOURS_MSK` — часы запуска по Москве в cron-формате APScheduler, по умолчанию `0,12`;
+- `SCHEDULER_MINUTE_MSK` — минута запуска, по умолчанию `0`;
+- `SCHEDULER_RUN_ON_STARTUP`.
 
 ## Ручной запуск обновления
 
@@ -154,14 +155,17 @@ DATABASE_URL=postgresql+psycopg2://app:app@postgres:5432/casebook
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
 CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
+# auto/apikey отправляет только apikey, как в curl-примере Casebook;
+# apikey_versioned добавляет apiversion; bearer отправляет Authorization.
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
-SCHEDULER_INTERVAL_MINUTES=30
-SCHEDULER_RUN_ON_STARTUP=true
+SCHEDULER_HOURS_MSK=0,12
+SCHEDULER_MINUTE_MSK=0
+SCHEDULER_RUN_ON_STARTUP=false
 FULL_SYNC_SECRET=
 
 UPDATER_SERVICE_URL=http://updater:8001
@@ -267,7 +271,12 @@ curl -X POST http://localhost:8000/admin/sync/full \
 
 Если получаете `401 Unauthorized` от Casebook:
 - проверьте `CASEBOOK_API_KEY`;
-- попробуйте `CASEBOOK_AUTH_SCHEME=apikey` или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
+- по умолчанию `CASEBOOK_AUTH_SCHEME=auto` отправляет только заголовок `apikey`, как в curl-примере Casebook для `/arbitrage/tracking/events/documents`;
+- если ваш доступ требует другую схему, попробуйте `CASEBOOK_AUTH_SCHEME=apikey_versioned` (добавляет `apiversion`) или `CASEBOOK_AUTH_SCHEME=bearer` в `.env`.
+
+Если плановый запрос Casebook за 12 часов пишет `получено_в_странице=0`, но тот же curl с одним `apikey` возвращает данные:
+- проверьте, что используется актуальный образ; раньше режим `auto` смешивал `apikey`, `apiversion` и `Authorization`, из-за чего endpoint мог вернуть успешный, но пустой ответ;
+- оставьте `CASEBOOK_AUTH_SCHEME=auto` или `CASEBOOK_AUTH_SCHEME=apikey`, чтобы запрос совпадал с рабочим curl.
 
 Если получаете `429 Too Many Requests` от Casebook:
 - это лимит API, updater теперь делает авто-повторы с backoff;
@@ -347,14 +356,17 @@ DATABASE_URL=postgresql+psycopg2://app:strong_password_here@postgres:5432/casebo
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
 CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
 CASEBOOK_API_VERSION=2
+# auto/apikey отправляет только apikey, как в curl-примере Casebook;
+# apikey_versioned добавляет apiversion; bearer отправляет Authorization.
 CASEBOOK_AUTH_SCHEME=auto
 PAGE_SIZE=100
 CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
-SCHEDULER_INTERVAL_MINUTES=30
-SCHEDULER_RUN_ON_STARTUP=true
+SCHEDULER_HOURS_MSK=0,12
+SCHEDULER_MINUTE_MSK=0
+SCHEDULER_RUN_ON_STARTUP=false
 FULL_SYNC_SECRET=change-me-very-long-secret
 
 JWT_SECRET=very-long-random-secret
