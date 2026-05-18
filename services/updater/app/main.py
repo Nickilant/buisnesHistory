@@ -9,7 +9,7 @@ from fastapi import FastAPI, Header, HTTPException
 
 from .config import settings
 from .db import init_db
-from .sync_service import run_sync_with_logging, sync_casebook_all, sync_previous_twelve_hours, sync_today_and_tomorrow
+from .sync_service import run_sync_with_logging, sync_casebook_all, sync_previous_six_hours, sync_today_and_tomorrow
 
 app = FastAPI(title='Casebook Updater Service')
 SCHEDULER_TIMEZONE = ZoneInfo('Europe/Moscow')
@@ -26,7 +26,7 @@ def scheduled_sync() -> None:
         logger.warning('Плановое обновление пропущено: предыдущий запуск ещё выполняется.')
         return
     try:
-        run_sync_with_logging('плановое (за предыдущие 12 часов)', sync_previous_twelve_hours)
+        run_sync_with_logging('плановое (за предыдущие 6 часов)', sync_previous_six_hours)
     finally:
         _scheduled_sync_lock.release()
         logger.info('Плановое обновление Casebook: lock освобождён.')
@@ -90,7 +90,7 @@ def startup_event() -> None:
         minute=settings.scheduler_minute_msk,
         second=0,
         next_run_time=first_run_at,
-        id='twelve_hour_casebook_sync',
+        id='six_hour_casebook_sync',
         max_instances=1,
         coalesce=True,
         replace_existing=True,

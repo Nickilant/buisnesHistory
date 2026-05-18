@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     casebook_retry_max_delay_seconds: float = 60.0
     progress_log_every_items: int = 500
 
-    scheduler_hours_msk: str = '0,12'
+    scheduler_hours_msk: str = '*/2'
     scheduler_minute_msk: int = 0
     scheduler_run_on_startup: bool = False
 
