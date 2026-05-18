@@ -67,12 +67,13 @@
 
 ## Планировщик
 
-По умолчанию: **каждые 2 часа по Москве**. Каждый плановый запуск запрашивает данные Casebook за предыдущие 6 часов. Автозапуск при старте контейнера по умолчанию выключен, чтобы обновления шли только по расписанию; при необходимости его можно включить через `SCHEDULER_RUN_ON_STARTUP=true`.
+По умолчанию: **каждые 2 часа по Москве**. Первый запуск выполняется сразу при старте контейнера, затем повторяется через заданный интервал. Каждый плановый запуск запрашивает данные Casebook за предыдущие 6 часов.
 
 Параметры:
-- `SCHEDULER_HOURS_MSK` — часы запуска по Москве в cron-формате APScheduler, по умолчанию `*/2`;
-- `SCHEDULER_MINUTE_MSK` — минута запуска, по умолчанию `0`;
-- `SCHEDULER_RUN_ON_STARTUP`.
+- `SCHEDULER_INTERVAL_HOURS` — интервал планового запуска в часах, по умолчанию `2`;
+- `SCHEDULER_RUN_ON_STARTUP` — запускать первое обновление сразу при старте контейнера, по умолчанию `true`.
+
+В логах updater при настройке планировщика выводятся фактический интервал, время первого запуска и `next_run_time`; после завершения планового обновления последним сообщением планировщика выводится время следующего обновления данных.
 
 ## Ручной запуск обновления
 
@@ -164,9 +165,8 @@ CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
-SCHEDULER_HOURS_MSK=*/2
-SCHEDULER_MINUTE_MSK=0
-SCHEDULER_RUN_ON_STARTUP=false
+SCHEDULER_INTERVAL_HOURS=2
+SCHEDULER_RUN_ON_STARTUP=true
 FULL_SYNC_SECRET=
 
 UPDATER_SERVICE_URL=http://updater:8001
@@ -365,9 +365,8 @@ CASEBOOK_RETRY_ATTEMPTS=8
 CASEBOOK_RETRY_BASE_DELAY_SECONDS=2
 CASEBOOK_RETRY_MAX_DELAY_SECONDS=60
 PROGRESS_LOG_EVERY_ITEMS=500
-SCHEDULER_HOURS_MSK=*/2
-SCHEDULER_MINUTE_MSK=0
-SCHEDULER_RUN_ON_STARTUP=false
+SCHEDULER_INTERVAL_HOURS=2
+SCHEDULER_RUN_ON_STARTUP=true
 FULL_SYNC_SECRET=change-me-very-long-secret
 
 JWT_SECRET=very-long-random-secret

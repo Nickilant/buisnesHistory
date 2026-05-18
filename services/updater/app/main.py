@@ -21,9 +21,16 @@ _full_sync_running = False
 
 
 def scheduled_sync() -> None:
-    logger.info('Запуск планового обновления Casebook: пробуем получить lock.')
+    logger.info(
+        'Запуск планового обновления Casebook: now_msk=%s, interval_hours=%s, пробуем получить lock.',
+        datetime.now(SCHEDULER_TIMEZONE).isoformat(),
+        settings.scheduler_interval_hours,
+    )
     if not _scheduled_sync_lock.acquire(blocking=False):
-        logger.warning('Плановое обновление пропущено: предыдущий запуск ещё выполняется.')
+        logger.warning(
+            'Плановое обновление пропущено: предыдущий запуск ещё выполняется. Следующее обновление данных: %s.',
+            _format_next_run_time(_get_scheduler_next_run_time()),
+        )
         return
     try:
         run_sync_with_logging('плановое (за предыдущие 6 часов)', sync_previous_six_hours)
@@ -33,28 +40,32 @@ def scheduled_sync() -> None:
 
 
 def log_scheduler_event(event) -> None:
+    next_run_time = _format_next_run_time(_get_scheduler_next_run_time())
     if event.code == EVENT_JOB_MISSED:
         logger.warning(
-            'Плановое обновление Casebook пропущено планировщиком: job_id=%s, scheduled_run_time=%s.',
+            'Плановое обновление Casebook пропущено планировщиком: job_id=%s, scheduled_run_time=%s, next_run_time=%s.',
             event.job_id,
             event.scheduled_run_time,
+            next_run_time,
         )
         return
 
     exception = getattr(event, 'exception', None)
     if exception:
         logger.error(
-            'Плановое обновление Casebook завершилось ошибкой: job_id=%s, scheduled_run_time=%s, error=%s.',
+            'Плановое обновление Casebook завершилось ошибкой: job_id=%s, scheduled_run_time=%s, error=%s, next_run_time=%s.',
             event.job_id,
             event.scheduled_run_time,
             exception,
+            next_run_time,
         )
         return
 
     logger.info(
-        'Плановое обновление Casebook выполнено планировщиком: job_id=%s, scheduled_run_time=%s.',
+        'Плановое обновление Casebook выполнено планировщиком: job_id=%s, scheduled_run_time=%s. Следующее обновление данных: %s.',
         event.job_id,
         event.scheduled_run_time,
+        next_run_time,
     )
 
 
@@ -71,24 +82,35 @@ def _run_full_sync_background() -> None:
             _full_sync_running = False
 
 
+def _format_next_run_time(next_run_time: datetime | None) -> str:
+    if next_run_time is None:
+        return 'не запланировано'
+    return next_run_time.astimezone(SCHEDULER_TIMEZONE).isoformat()
+
+
+def _get_scheduler_next_run_time() -> datetime | None:
+    job = scheduler.get_job('six_hour_casebook_sync')
+    if job is None:
+        return None
+    return job.next_run_time
+
+
 @app.on_event('startup')
 def startup_event() -> None:
     init_db()
     first_run_at = datetime.now(SCHEDULER_TIMEZONE) if settings.scheduler_run_on_startup else None
     logger.info(
-        'Настройка планового обновления Casebook: hours_msk=%s, minute_msk=%s, run_on_startup=%s, timezone=%s.',
-        settings.scheduler_hours_msk,
-        settings.scheduler_minute_msk,
+        'Настройка планового обновления Casebook: interval_hours=%s, run_on_startup=%s, timezone=%s, first_run_at=%s.',
+        settings.scheduler_interval_hours,
         settings.scheduler_run_on_startup,
         SCHEDULER_TIMEZONE,
+        _format_next_run_time(first_run_at),
     )
     scheduler.add_listener(log_scheduler_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED)
     job = scheduler.add_job(
         scheduled_sync,
-        trigger='cron',
-        hour=settings.scheduler_hours_msk,
-        minute=settings.scheduler_minute_msk,
-        second=0,
+        trigger='interval',
+        hours=settings.scheduler_interval_hours,
         next_run_time=first_run_at,
         id='six_hour_casebook_sync',
         max_instances=1,
@@ -97,9 +119,10 @@ def startup_event() -> None:
     )
     scheduler.start()
     logger.info(
-        'Плановое обновление Casebook запланировано: job_id=%s, next_run_time=%s.',
+        'Плановое обновление Casebook запланировано: job_id=%s, interval_hours=%s, next_run_time=%s.',
         job.id,
-        job.next_run_time,
+        settings.scheduler_interval_hours,
+        _format_next_run_time(job.next_run_time),
     )
 
 
