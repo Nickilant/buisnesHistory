@@ -32,6 +32,13 @@ EVENT_TRANSLATIONS = {
 }
 
 UNKNOWN_DOCUMENT_TYPE_NAME = 'Документ без типа'
+INFO_ACCEPTED_COURT_ACT_TYPE_NAME = 'Информация о принятом судебном акте'
+DECISION_DOCUMENT_TYPE_PREFIXES = (
+    'Определение',
+    'Решение',
+    'Постановление',
+    'Судебный приказ',
+)
 
 
 def _clean_document_value(value) -> str | None:
@@ -46,16 +53,39 @@ def _document_named_part(document: dict, key: str, field: str) -> str | None:
     return _clean_document_value(value)
 
 
+def _capitalize_first_letter(value: str) -> str:
+    if not value:
+        return value
+    return value[0].upper() + value[1:]
+
+
+def split_decision_type_name(decision_type_name: str) -> tuple[str, str] | None:
+    for prefix in DECISION_DOCUMENT_TYPE_PREFIXES:
+        if decision_type_name == prefix:
+            return prefix, ''
+        prefix_with_space = f'{prefix} '
+        if decision_type_name.startswith(prefix_with_space):
+            return prefix, _capitalize_first_letter(decision_type_name[len(prefix_with_space):].strip())
+    return None
+
+
 def get_document_type_name(document: dict) -> str:
     type_name = _document_named_part(document, 'type', 'name')
     decision_type_name = _document_named_part(document, 'decisionType', 'name')
+
+    if type_name == INFO_ACCEPTED_COURT_ACT_TYPE_NAME and decision_type_name:
+        split_decision_type = split_decision_type_name(decision_type_name)
+        if split_decision_type:
+            document_type_name, content_type_name = split_decision_type
+            return f'{document_type_name}: {content_type_name}' if content_type_name else document_type_name
+        return decision_type_name
 
     name_parts = []
     for name in (type_name, decision_type_name):
         if name and name not in name_parts:
             name_parts.append(name)
 
-    return ' : '.join(name_parts) if name_parts else UNKNOWN_DOCUMENT_TYPE_NAME
+    return ': '.join(name_parts) if name_parts else UNKNOWN_DOCUMENT_TYPE_NAME
 
 
 def get_document_type_id(document: dict) -> str | None:
@@ -70,19 +100,23 @@ def get_document_type_id(document: dict) -> str | None:
     return ':'.join(id_parts) if id_parts else None
 
 
+def _has_raw_content_types(document: dict) -> bool:
+    return bool(document.get('contentTypes') or [])
+
+
 def get_event_content_type_name(event: DocumentEvent, content: ContentType | None) -> str:
-    if content and content.name:
+    document = (event.raw_item or {}).get('document') or {}
+    if content and content.name and _has_raw_content_types(document):
         return content.name
 
-    document = (event.raw_item or {}).get('document') or {}
     return get_document_type_name(document)
 
 
 def get_event_content_type_id(event: DocumentEvent, content: ContentType | None) -> str | None:
-    if content and content.content_type_external_id:
+    document = (event.raw_item or {}).get('document') or {}
+    if content and content.content_type_external_id and _has_raw_content_types(document):
         return content.content_type_external_id
 
-    document = (event.raw_item or {}).get('document') or {}
     return get_document_type_id(document)
 
 
