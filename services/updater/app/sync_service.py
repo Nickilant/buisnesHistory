@@ -16,13 +16,7 @@ from .db import Case, ContentType, DocumentEvent, SessionLocal
 
 logger = logging.getLogger('uvicorn.error')
 CASEBOOK_DATE_TIMEZONE = ZoneInfo('Europe/Moscow')
-INFO_ACCEPTED_COURT_ACT_TYPE_NAME = 'Информация о принятом судебном акте'
-DECISION_DOCUMENT_TYPE_PREFIXES = (
-    'Определение',
-    'Решение',
-    'Постановление',
-    'Судебный приказ',
-)
+CASE_DOCUMENT_SNAPSHOT_SOURCE = 'case_document_snapshot'
 
 
 def _format_casebook_date_param(value: date | datetime) -> str:
@@ -50,6 +44,8 @@ def _build_hash(item: dict[str, Any]) -> str:
         'actualDate': item.get('document', {}).get('actualDate'),
         'eventType': item.get('eventType'),
     }
+    if item.get('_source'):
+        stable['source'] = item.get('_source')
     payload = json.dumps(stable, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
@@ -74,32 +70,9 @@ def _document_named_part(document: dict[str, Any], key: str, field: str) -> str 
     return _clean_document_value(value)
 
 
-def _capitalize_first_letter(value: str) -> str:
-    if not value:
-        return value
-    return value[0].upper() + value[1:]
-
-
-def _split_decision_type_name(decision_type_name: str) -> tuple[str, str] | None:
-    for prefix in DECISION_DOCUMENT_TYPE_PREFIXES:
-        if decision_type_name == prefix:
-            return prefix, ''
-        prefix_with_space = f'{prefix} '
-        if decision_type_name.startswith(prefix_with_space):
-            return prefix, _capitalize_first_letter(decision_type_name[len(prefix_with_space):].strip())
-    return None
-
-
 def _compose_document_type_name(document: dict[str, Any]) -> str | None:
     type_name = _document_named_part(document, 'type', 'name')
     decision_type_name = _document_named_part(document, 'decisionType', 'name')
-
-    if type_name == INFO_ACCEPTED_COURT_ACT_TYPE_NAME and decision_type_name:
-        split_decision_type = _split_decision_type_name(decision_type_name)
-        if split_decision_type:
-            document_type_name, content_type_name = split_decision_type
-            return f'{document_type_name}: {content_type_name}' if content_type_name else document_type_name
-        return decision_type_name
 
     name_parts: list[str] = []
     for name in (type_name, decision_type_name):
@@ -253,6 +226,152 @@ def fetch_casebook(start_date: date | datetime | None = None, end_date: date | d
     return items
 
 
+def build_casebook_documents_url(case_id: str) -> str:
+    base_url = settings.casebook_api_url.split('/tracking/', 1)[0].rstrip('/')
+    return f'{base_url}/cases/{case_id}/documents'
+
+
+def fetch_case_documents(case_id: str) -> list[dict[str, Any]]:
+    documents: list[dict[str, Any]] = []
+    page = 1
+    offset = None
+
+    while True:
+        params: dict[str, Any] = {'size': settings.page_size}
+        if offset is not None:
+            params['offset'] = offset
+        else:
+            params['page'] = page
+
+        response = None
+        for attempt in range(settings.casebook_retry_attempts + 1):
+            try:
+                response = requests.get(
+                    build_casebook_documents_url(case_id),
+                    headers=_build_casebook_headers(),
+                    params=params,
+                    timeout=40,
+                )
+                response.raise_for_status()
+                break
+            except HTTPError as exc:
+                status_code = response.status_code if response is not None else None
+                if status_code == 404:
+                    return documents
+                is_retryable = status_code is not None and _is_retryable_casebook_status(status_code)
+                if is_retryable and attempt < settings.casebook_retry_attempts:
+                    retry_after = response.headers.get('Retry-After') if response is not None else None
+                    delay = _retry_delay_seconds(attempt, retry_after)
+                    logger.warning(
+                        'Casebook %s для списка документов дела %s. Повтор через %.1f сек (попытка %s/%s).',
+                        status_code,
+                        case_id,
+                        delay,
+                        attempt + 1,
+                        settings.casebook_retry_attempts,
+                    )
+                    sleep(delay)
+                    continue
+                raise
+            except RequestException as exc:
+                if attempt < settings.casebook_retry_attempts:
+                    delay = _retry_delay_seconds(attempt, None)
+                    logger.warning(
+                        'Ошибка запроса списка документов дела %s: %s. Повтор через %.1f сек (попытка %s/%s).',
+                        case_id,
+                        exc,
+                        delay,
+                        attempt + 1,
+                        settings.casebook_retry_attempts,
+                    )
+                    sleep(delay)
+                    continue
+                raise
+
+        if response is None:
+            raise RuntimeError(f'Пустой ответ от Casebook API для списка документов дела {case_id}.')
+
+        payload = response.json()
+        batch = payload.get('items') or []
+        documents.extend(batch)
+
+        next_offset = payload.get('next')
+        if next_offset:
+            offset = next_offset
+            page += 1
+            continue
+
+        pages = payload.get('pages') or page
+        if page >= pages:
+            break
+        page += 1
+
+    return documents
+
+
+def _case_document_to_payload_item(case_id: str, case_number: str, document: dict[str, Any]) -> dict[str, Any]:
+    document_id = document.get('id')
+    return {
+        '_source': CASE_DOCUMENT_SNAPSHOT_SOURCE,
+        'findDate': document.get('changeDate') or document.get('publishDate') or document.get('date'),
+        'isDeleted': False,
+        'eventType': 'added',
+        'document': {
+            'id': document_id,
+            'actualDate': document.get('date') or document.get('incomingDate') or document.get('publishDate'),
+            'type': document.get('type'),
+            'decisionType': document.get('decisionType'),
+            'contentTypes': document.get('contentTypes') or [],
+            'isFinal': document.get('isFinalDocument'),
+            'fileName': document.get('fileName'),
+            'description': document.get('description'),
+            'reasonDocumentId': document.get('reasonDocumentId'),
+        },
+        'eventData': {
+            'case': {'id': case_id, 'number': case_number},
+            'instance': {
+                'id': document.get('instanceId'),
+                'number': document.get('instanceNumber'),
+                'level': document.get('instanceLevel'),
+                'courtId': document.get('courtId'),
+                'judgeId': (document.get('judgesIds') or [None])[0],
+            },
+            'discriminator': 'ArbitrageCaseDocumentSnapshot',
+        },
+    }
+
+
+def fetch_case_document_snapshot_items(payload_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cases: dict[str, str] = {}
+    for item in payload_items:
+        case_obj = item.get('eventData', {}).get('case') or {}
+        case_id = case_obj.get('id')
+        case_number = case_obj.get('number')
+        if case_id and case_number:
+            cases[case_id] = case_number
+
+    snapshot_items: list[dict[str, Any]] = []
+    for case_id, case_number in cases.items():
+        try:
+            documents = fetch_case_documents(case_id)
+        except Exception:
+            logger.exception('Не удалось получить список документов дела %s.', case_id)
+            continue
+
+        for document in documents:
+            if document.get('id'):
+                snapshot_items.append(_case_document_to_payload_item(case_id, case_number, document))
+
+    if snapshot_items:
+        logger.info(
+            'Получены документы карточек Casebook: дел=%s, документов=%s.',
+            len(cases),
+            len(snapshot_items),
+        )
+
+    return snapshot_items
+
+
 def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     inserted = 0
     updated = 0
@@ -288,6 +407,31 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
             elif case_db.case_number != case_number:
                 case_db.case_number = case_number
 
+            document_id = document_obj.get('id')
+            same_document_events = []
+            if document_id:
+                same_document_events = db.execute(
+                    select(DocumentEvent).where(
+                        DocumentEvent.case_id == case_db.id,
+                        DocumentEvent.document_external_id == document_id,
+                    )
+                ).scalars().all()
+
+            is_snapshot_item = item.get('_source') == CASE_DOCUMENT_SNAPSHOT_SOURCE
+            if is_snapshot_item and any(
+                (existing.raw_item or {}).get('_source') != CASE_DOCUMENT_SNAPSHOT_SOURCE
+                for existing in same_document_events
+            ):
+                skipped += 1
+                continue
+
+            if not is_snapshot_item:
+                for existing in same_document_events:
+                    if (existing.raw_item or {}).get('_source') == CASE_DOCUMENT_SNAPSHOT_SOURCE:
+                        db.delete(existing)
+                if same_document_events:
+                    db.flush()
+
             event_db = db.execute(
                 select(DocumentEvent).where(DocumentEvent.source_hash == source_hash)
             ).scalar_one_or_none()
@@ -304,7 +448,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
             else:
                 event_db = DocumentEvent(
                     case_id=case_db.id,
-                    document_external_id=document_obj.get('id'),
+                    document_external_id=document_id,
                     event_type=item.get('eventType') or 'added',
                     find_date=_to_dt(item.get('findDate')),
                     actual_date=_to_dt(document_obj.get('actualDate')),
@@ -327,7 +471,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
                     if ct_id in seen_content_type_ids:
                         continue
                     seen_content_type_ids.add(ct_id)
-                    composed_name = f'{type_name} : {ct_name}' if type_name else ct_name
+                    composed_name = f'{type_name}: {ct_name}' if type_name else ct_name
                     db.add(
                         ContentType(
                             event_id=event_db.id,
@@ -369,11 +513,13 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
 
 def sync_casebook_range(start_date: date | datetime, end_date: date | datetime) -> dict[str, int]:
     payload_items = fetch_casebook(start_date, end_date)
+    payload_items.extend(fetch_case_document_snapshot_items(payload_items))
     return _sync_payload_items(payload_items)
 
 
 def sync_casebook_all() -> dict[str, int]:
     payload_items = fetch_casebook()
+    payload_items.extend(fetch_case_document_snapshot_items(payload_items))
     return _sync_payload_items(payload_items)
 
 
