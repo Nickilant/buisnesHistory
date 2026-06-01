@@ -34,16 +34,48 @@ EVENT_TRANSLATIONS = {
 UNKNOWN_DOCUMENT_TYPE_NAME = 'Документ без типа'
 
 
+def _clean_document_value(value) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _document_named_part(document: dict, key: str, field: str) -> str | None:
+    value = (document.get(key) or {}).get(field)
+    return _clean_document_value(value)
+
+
+def get_document_type_name(document: dict) -> str:
+    type_name = _document_named_part(document, 'type', 'name')
+    decision_type_name = _document_named_part(document, 'decisionType', 'name')
+
+    name_parts = []
+    for name in (type_name, decision_type_name):
+        if name and name not in name_parts:
+            name_parts.append(name)
+
+    return ' : '.join(name_parts) if name_parts else UNKNOWN_DOCUMENT_TYPE_NAME
+
+
+def get_document_type_id(document: dict) -> str | None:
+    type_id = _document_named_part(document, 'type', 'id')
+    decision_type_id = _document_named_part(document, 'decisionType', 'id')
+
+    id_parts = []
+    for id_part in (type_id, decision_type_id):
+        if id_part and id_part not in id_parts:
+            id_parts.append(id_part)
+
+    return ':'.join(id_parts) if id_parts else None
+
+
 def get_event_content_type_name(event: DocumentEvent, content: ContentType | None) -> str:
     if content and content.name:
         return content.name
 
     document = (event.raw_item or {}).get('document') or {}
-    document_type_name = (document.get('type') or {}).get('name')
-    if isinstance(document_type_name, str) and document_type_name.strip():
-        return document_type_name.strip()
-
-    return UNKNOWN_DOCUMENT_TYPE_NAME
+    return get_document_type_name(document)
 
 
 def get_event_content_type_id(event: DocumentEvent, content: ContentType | None) -> str | None:
@@ -51,11 +83,7 @@ def get_event_content_type_id(event: DocumentEvent, content: ContentType | None)
         return content.content_type_external_id
 
     document = (event.raw_item or {}).get('document') or {}
-    document_type_id = (document.get('type') or {}).get('id')
-    if document_type_id:
-        return str(document_type_id)
-
-    return None
+    return get_document_type_id(document)
 
 
 PROCESSING_FILTER_VALUES = {'all', 'processed', 'unprocessed'}

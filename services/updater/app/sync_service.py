@@ -55,6 +55,42 @@ def _to_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _clean_document_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _document_named_part(document: dict[str, Any], key: str, field: str) -> str | None:
+    value = (document.get(key) or {}).get(field)
+    return _clean_document_value(value)
+
+
+def _compose_document_type_name(document: dict[str, Any]) -> str | None:
+    type_name = _document_named_part(document, 'type', 'name')
+    decision_type_name = _document_named_part(document, 'decisionType', 'name')
+
+    name_parts: list[str] = []
+    for name in (type_name, decision_type_name):
+        if name and name not in name_parts:
+            name_parts.append(name)
+
+    return ' : '.join(name_parts) if name_parts else None
+
+
+def _compose_document_type_id(document: dict[str, Any]) -> str | None:
+    type_id = _document_named_part(document, 'type', 'id')
+    decision_type_id = _document_named_part(document, 'decisionType', 'id')
+
+    id_parts: list[str] = []
+    for id_part in (type_id, decision_type_id):
+        if id_part and id_part not in id_parts:
+            id_parts.append(id_part)
+
+    return ':'.join(id_parts) if id_parts else None
+
+
 def _build_casebook_headers() -> dict[str, str]:
     """Build Casebook auth headers.
 
@@ -252,22 +288,34 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
 
             type_name = (document_obj.get('type') or {}).get('name', '').strip()
             seen_content_type_ids: set[str] = set()
-            for ct in content_types:
-                ct_id = ct.get('id')
-                ct_name = ct.get('name')
-                if not ct_id or not ct_name:
-                    continue
-                if ct_id in seen_content_type_ids:
-                    continue
-                seen_content_type_ids.add(ct_id)
-                composed_name = f'{type_name} : {ct_name}' if type_name else ct_name
-                db.add(
-                    ContentType(
-                        event_id=event_db.id,
-                        content_type_external_id=ct_id,
-                        name=composed_name,
+            if content_types:
+                for ct in content_types:
+                    ct_id = ct.get('id')
+                    ct_name = ct.get('name')
+                    if not ct_id or not ct_name:
+                        continue
+                    if ct_id in seen_content_type_ids:
+                        continue
+                    seen_content_type_ids.add(ct_id)
+                    composed_name = f'{type_name} : {ct_name}' if type_name else ct_name
+                    db.add(
+                        ContentType(
+                            event_id=event_db.id,
+                            content_type_external_id=ct_id,
+                            name=composed_name,
+                        )
                     )
-                )
+            else:
+                fallback_type_id = _compose_document_type_id(document_obj)
+                fallback_type_name = _compose_document_type_name(document_obj)
+                if fallback_type_id and fallback_type_name:
+                    db.add(
+                        ContentType(
+                            event_id=event_db.id,
+                            content_type_external_id=fallback_type_id,
+                            name=fallback_type_name,
+                        )
+                    )
 
             if processed % progress_every == 0:
                 logger.info(
