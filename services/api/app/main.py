@@ -31,6 +31,64 @@ EVENT_TRANSLATIONS = {
     'changed': 'Изменено',
 }
 
+UNKNOWN_DOCUMENT_TYPE_NAME = 'Документ без типа'
+
+def _clean_document_value(value) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _document_named_part(document: dict, key: str, field: str) -> str | None:
+    value = (document.get(key) or {}).get(field)
+    return _clean_document_value(value)
+
+
+def get_document_type_name(document: dict) -> str:
+    type_name = _document_named_part(document, 'type', 'name')
+    decision_type_name = _document_named_part(document, 'decisionType', 'name')
+
+    name_parts = []
+    for name in (type_name, decision_type_name):
+        if name and name not in name_parts:
+            name_parts.append(name)
+
+    return ': '.join(name_parts) if name_parts else UNKNOWN_DOCUMENT_TYPE_NAME
+
+
+def get_document_type_id(document: dict) -> str | None:
+    type_id = _document_named_part(document, 'type', 'id')
+    decision_type_id = _document_named_part(document, 'decisionType', 'id')
+
+    id_parts = []
+    for id_part in (type_id, decision_type_id):
+        if id_part and id_part not in id_parts:
+            id_parts.append(id_part)
+
+    return ':'.join(id_parts) if id_parts else None
+
+
+def _has_raw_content_types(document: dict) -> bool:
+    return bool(document.get('contentTypes') or [])
+
+
+def get_event_content_type_name(event: DocumentEvent, content: ContentType | None) -> str:
+    document = (event.raw_item or {}).get('document') or {}
+    if content and content.name and _has_raw_content_types(document):
+        return content.name
+
+    return get_document_type_name(document)
+
+
+def get_event_content_type_id(event: DocumentEvent, content: ContentType | None) -> str | None:
+    document = (event.raw_item or {}).get('document') or {}
+    if content and content.content_type_external_id and _has_raw_content_types(document):
+        return content.content_type_external_id
+
+    return get_document_type_id(document)
+
+
 PROCESSING_FILTER_VALUES = {'all', 'processed', 'unprocessed'}
 DATE_FILTER_FIELDS = {
     'find': DocumentEvent.find_date,
@@ -415,18 +473,19 @@ def events_history(
 
     with SessionLocal() as db:
         document_key = func.coalesce(DocumentEvent.document_external_id, '').label('document_key')
+        content_type_key = func.coalesce(ContentType.content_type_external_id, '').label('content_type_key')
         base_stmt = (
             select(
                 Case.id.label('case_db_id'),
                 Case.external_case_id.label('case_external_id'),
                 Case.case_number.label('case_number'),
                 document_key,
-                ContentType.content_type_external_id.label('content_type_external_id'),
+                content_type_key,
                 func.max(DocumentEvent.find_date).label('latest_find_date'),
                 func.max(DocumentEvent.actual_date).label('latest_actual_date'),
             )
             .join(DocumentEvent, DocumentEvent.case_id == Case.id)
-            .join(ContentType, ContentType.event_id == DocumentEvent.id)
+            .outerjoin(ContentType, ContentType.event_id == DocumentEvent.id)
             .outerjoin(
                 DocumentStatus,
                 and_(
@@ -452,7 +511,7 @@ def events_history(
             Case.external_case_id,
             Case.case_number,
             document_key,
-            ContentType.content_type_external_id,
+            content_type_key,
         )
         total = db.execute(select(func.count()).select_from(grouped_stmt.order_by(None).subquery())).scalar() or 0
         page_groups = db.execute(
@@ -465,7 +524,7 @@ def events_history(
         ).all()
 
         page_group_keys = [
-            (group.case_db_id, group.document_key, group.content_type_external_id)
+            (group.case_db_id, group.document_key, group.content_type_key)
             for group in page_groups
         ]
         rows = []
@@ -473,7 +532,7 @@ def events_history(
             rows_stmt = (
                 select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType, DocumentStatus.is_processed)
                 .join(DocumentEvent, DocumentEvent.case_id == Case.id)
-                .join(ContentType, ContentType.event_id == DocumentEvent.id)
+                .outerjoin(ContentType, ContentType.event_id == DocumentEvent.id)
                 .outerjoin(
                     DocumentStatus,
                     and_(
@@ -486,7 +545,7 @@ def events_history(
                     tuple_(
                         Case.id,
                         func.coalesce(DocumentEvent.document_external_id, ''),
-                        ContentType.content_type_external_id,
+                        func.coalesce(ContentType.content_type_external_id, ''),
                     ).in_(page_group_keys)
                 )
             )
@@ -507,10 +566,10 @@ def events_history(
                 'actualDate': event.actual_date.isoformat() if event.actual_date else None,
                 'isDeleted': event.is_deleted,
                 'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
-                'contentTypeName': content.name,
+                'contentTypeName': get_event_content_type_name(event, content),
                 'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_id,
                 'documentId': event.document_external_id,
-                'contentTypeId': content.content_type_external_id,
+                'contentTypeId': get_event_content_type_id(event, content),
                 'isProcessed': bool(is_processed),
             }
             for case_id, case_number, event, content, is_processed in rows
@@ -535,7 +594,7 @@ def case_history(case_external_id: str, processed: str | None = None, _: dict = 
 
         stmt = (
             select(DocumentEvent, ContentType, DocumentStatus.is_processed)
-            .join(ContentType, ContentType.event_id == DocumentEvent.id)
+            .outerjoin(ContentType, ContentType.event_id == DocumentEvent.id)
             .outerjoin(
                 DocumentStatus,
                 and_(
@@ -560,10 +619,10 @@ def case_history(case_external_id: str, processed: str | None = None, _: dict = 
             'actualDate': event.actual_date.isoformat() if event.actual_date else None,
             'isDeleted': event.is_deleted,
             'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
-            'contentTypeName': content.name,
+            'contentTypeName': get_event_content_type_name(event, content),
             'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_external_id,
             'documentId': event.document_external_id,
-            'contentTypeId': content.content_type_external_id,
+            'contentTypeId': get_event_content_type_id(event, content),
             'isProcessed': bool(is_processed),
         }
         for event, content, is_processed in rows
