@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from dateutil import parser
-from requests import HTTPError
+from requests import HTTPError, RequestException
 from sqlalchemy import select
 
 from .config import settings
@@ -95,6 +95,10 @@ def _retry_delay_seconds(attempt: int, retry_after: str | None) -> float:
     return min(delay, settings.casebook_retry_max_delay_seconds)
 
 
+def _is_retryable_casebook_status(status_code: int) -> bool:
+    return status_code in {403, 429} or status_code >= 500
+
+
 def fetch_casebook(start_date: date | datetime | None = None, end_date: date | datetime | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     offset = None
@@ -114,29 +118,45 @@ def fetch_casebook(start_date: date | datetime | None = None, end_date: date | d
         logger.info('Запрос Casebook: params=%s.', params)
         response = None
         for attempt in range(settings.casebook_retry_attempts + 1):
-            response = requests.get(
-                settings.casebook_api_url,
-                headers=_build_casebook_headers(),
-                params=params,
-                timeout=40,
-            )
             try:
+                response = requests.get(
+                    settings.casebook_api_url,
+                    headers=_build_casebook_headers(),
+                    params=params,
+                    timeout=40,
+                )
                 response.raise_for_status()
                 break
             except HTTPError as exc:
-                if response.status_code == 401:
+                if response is not None and response.status_code == 401:
                     raise RuntimeError(
                         'Casebook вернул 401 Unauthorized. Проверьте CASEBOOK_API_KEY и схему '
                         'авторизации CASEBOOK_AUTH_SCHEME (auto/apikey/apikey_versioned/bearer).'
                     ) from exc
 
-                is_retryable = response.status_code == 429 or response.status_code >= 500
+                status_code = response.status_code if response is not None else None
+                is_retryable = status_code is not None and _is_retryable_casebook_status(status_code)
                 if is_retryable and attempt < settings.casebook_retry_attempts:
-                    delay = _retry_delay_seconds(attempt, response.headers.get('Retry-After'))
+                    retry_after = response.headers.get('Retry-After') if response is not None else None
+                    delay = _retry_delay_seconds(attempt, retry_after)
                     logger.warning(
                         'Casebook %s для params=%s. Повтор через %.1f сек (попытка %s/%s).',
-                        response.status_code,
+                        status_code,
                         params,
+                        delay,
+                        attempt + 1,
+                        settings.casebook_retry_attempts,
+                    )
+                    sleep(delay)
+                    continue
+                raise
+            except RequestException as exc:
+                if attempt < settings.casebook_retry_attempts:
+                    delay = _retry_delay_seconds(attempt, None)
+                    logger.warning(
+                        'Ошибка запроса Casebook для params=%s: %s. Повтор через %.1f сек (попытка %s/%s).',
+                        params,
+                        exc,
                         delay,
                         attempt + 1,
                         settings.casebook_retry_attempts,
@@ -173,10 +193,17 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     skipped = 0
     processed = 0
     progress_every = max(1, settings.progress_log_every_items)
+    seen_source_hashes: set[str] = set()
 
     with SessionLocal() as db:
         for item in payload_items:
             processed += 1
+            source_hash = _build_hash(item)
+            if source_hash in seen_source_hashes:
+                skipped += 1
+                continue
+            seen_source_hashes.add(source_hash)
+
             case_obj = item.get('eventData', {}).get('case') or {}
             document_obj = item.get('document') or {}
             content_types = document_obj.get('contentTypes') or []
@@ -195,8 +222,9 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
             elif case_db.case_number != case_number:
                 case_db.case_number = case_number
 
-            source_hash = _build_hash(item)
-            event_db = db.execute(select(DocumentEvent).where(DocumentEvent.source_hash == source_hash)).scalar_one_or_none()
+            event_db = db.execute(
+                select(DocumentEvent).where(DocumentEvent.source_hash == source_hash)
+            ).scalar_one_or_none()
             if event_db:
                 updated += 1
                 event_db.raw_item = item
@@ -277,11 +305,11 @@ def sync_today_and_tomorrow() -> dict[str, int]:
     return sync_casebook_range(today_utc, tomorrow_utc)
 
 
-def sync_previous_twelve_hours() -> dict[str, int]:
+def sync_previous_six_hours() -> dict[str, int]:
     end_msk = datetime.now(CASEBOOK_DATE_TIMEZONE)
-    start_msk = end_msk - timedelta(hours=12)
+    start_msk = end_msk - timedelta(hours=6)
     logger.info(
-        'Диапазон планового обновления Casebook за предыдущие 12 часов: dateFrom=%s, dateTo=%s.',
+        'Диапазон планового обновления Casebook за предыдущие 6 часов: dateFrom=%s, dateTo=%s.',
         _format_casebook_date_param(start_msk),
         _format_casebook_date_param(end_msk),
     )
