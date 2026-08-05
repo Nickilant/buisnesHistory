@@ -1,6 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from time import monotonic
 from urllib.parse import parse_qs, urlencode
 
 import requests
@@ -30,6 +28,64 @@ EVENT_TRANSLATIONS = {
     'added': 'Добавлено',
     'changed': 'Изменено',
 }
+
+UNKNOWN_DOCUMENT_TYPE_NAME = 'Документ без типа'
+
+def _clean_document_value(value) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _document_named_part(document: dict, key: str, field: str) -> str | None:
+    value = (document.get(key) or {}).get(field)
+    return _clean_document_value(value)
+
+
+def get_document_type_name(document: dict) -> str:
+    type_name = _document_named_part(document, 'type', 'name')
+    decision_type_name = _document_named_part(document, 'decisionType', 'name')
+
+    name_parts = []
+    for name in (type_name, decision_type_name):
+        if name and name not in name_parts:
+            name_parts.append(name)
+
+    return ': '.join(name_parts) if name_parts else UNKNOWN_DOCUMENT_TYPE_NAME
+
+
+def get_document_type_id(document: dict) -> str | None:
+    type_id = _document_named_part(document, 'type', 'id')
+    decision_type_id = _document_named_part(document, 'decisionType', 'id')
+
+    id_parts = []
+    for id_part in (type_id, decision_type_id):
+        if id_part and id_part not in id_parts:
+            id_parts.append(id_part)
+
+    return ':'.join(id_parts) if id_parts else None
+
+
+def _has_raw_content_types(document: dict) -> bool:
+    return bool(document.get('contentTypes') or [])
+
+
+def get_event_content_type_name(event: DocumentEvent, content: ContentType | None) -> str:
+    document = (event.raw_item or {}).get('document') or {}
+    if content and content.name and _has_raw_content_types(document):
+        return content.name
+
+    return get_document_type_name(document)
+
+
+def get_event_content_type_id(event: DocumentEvent, content: ContentType | None) -> str | None:
+    document = (event.raw_item or {}).get('document') or {}
+    if content and content.content_type_external_id and _has_raw_content_types(document):
+        return content.content_type_external_id
+
+    return get_document_type_id(document)
+
 
 PROCESSING_FILTER_VALUES = {'all', 'processed', 'unprocessed'}
 DATE_FILTER_FIELDS = {
@@ -96,70 +152,6 @@ def apply_processing_filter(stmt, processed: str):
     if processed == 'unprocessed':
         return stmt.where(func.coalesce(DocumentStatus.is_processed, False).is_(False))
     return stmt
-
-
-DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS = 60 * 60
-DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS = 5000
-_document_availability_cache: dict[str, tuple[float, str]] = {}
-
-
-def build_casebook_document_url(case_id: str, document_id: str) -> str:
-    base_url = settings.casebook_api_url.split('/tracking/', 1)[0].rstrip('/')
-    return f'{base_url}/cases/{case_id}/documents/{document_id}'
-
-
-def build_casebook_headers() -> dict[str, str]:
-    headers = {'accept': 'application/json'}
-    if not settings.casebook_api_key:
-        return headers
-
-    scheme = settings.casebook_auth_scheme.lower()
-    if scheme in {'auto', 'apikey'}:
-        headers['apikey'] = settings.casebook_api_key
-    elif scheme in {'apikey_versioned', 'apikey-versioned', 'legacy'}:
-        headers['apikey'] = settings.casebook_api_key
-        headers['apiversion'] = settings.casebook_api_version
-    elif scheme == 'bearer':
-        headers['Authorization'] = f'Bearer {settings.casebook_api_key}'
-    else:
-        raise RuntimeError(
-            'Неизвестная схема авторизации CASEBOOK_AUTH_SCHEME. '
-            'Допустимые значения: auto, apikey, apikey_versioned, bearer.'
-        )
-
-    return headers
-
-
-def detect_casebook_document_availability(payload: dict) -> str:
-    file_name = payload.get('fileName')
-    if isinstance(file_name, str):
-        return 'available' if file_name.strip() else 'unavailable'
-    return 'unknown'
-
-
-def check_casebook_document_available(case_id: str, document_id: str) -> str:
-    url = build_casebook_document_url(case_id, document_id)
-    now = monotonic()
-    cached = _document_availability_cache.get(url)
-    if cached and now - cached[0] < DOCUMENT_AVAILABILITY_CACHE_TTL_SECONDS:
-        return cached[1]
-
-    status = 'unknown'
-    try:
-        response = requests.get(url, headers=build_casebook_headers(), timeout=(2, 8))
-        if response.status_code == 404:
-            status = 'unavailable'
-        else:
-            response.raise_for_status()
-            status = detect_casebook_document_availability(response.json())
-    except (RequestException, ValueError):
-        status = 'unknown'
-
-    if len(_document_availability_cache) >= DOCUMENT_AVAILABILITY_CACHE_MAX_ITEMS:
-        oldest_key = min(_document_availability_cache, key=lambda key: _document_availability_cache[key][0])
-        _document_availability_cache.pop(oldest_key, None)
-    _document_availability_cache[url] = (now, status)
-    return status
 
 
 async def read_payload(request: Request) -> dict[str, str]:
@@ -415,18 +407,19 @@ def events_history(
 
     with SessionLocal() as db:
         document_key = func.coalesce(DocumentEvent.document_external_id, '').label('document_key')
+        content_type_key = func.coalesce(ContentType.content_type_external_id, '').label('content_type_key')
         base_stmt = (
             select(
                 Case.id.label('case_db_id'),
                 Case.external_case_id.label('case_external_id'),
                 Case.case_number.label('case_number'),
                 document_key,
-                ContentType.content_type_external_id.label('content_type_external_id'),
+                content_type_key,
                 func.max(DocumentEvent.find_date).label('latest_find_date'),
                 func.max(DocumentEvent.actual_date).label('latest_actual_date'),
             )
             .join(DocumentEvent, DocumentEvent.case_id == Case.id)
-            .join(ContentType, ContentType.event_id == DocumentEvent.id)
+            .outerjoin(ContentType, ContentType.event_id == DocumentEvent.id)
             .outerjoin(
                 DocumentStatus,
                 and_(
@@ -452,7 +445,7 @@ def events_history(
             Case.external_case_id,
             Case.case_number,
             document_key,
-            ContentType.content_type_external_id,
+            content_type_key,
         )
         total = db.execute(select(func.count()).select_from(grouped_stmt.order_by(None).subquery())).scalar() or 0
         page_groups = db.execute(
@@ -465,7 +458,7 @@ def events_history(
         ).all()
 
         page_group_keys = [
-            (group.case_db_id, group.document_key, group.content_type_external_id)
+            (group.case_db_id, group.document_key, group.content_type_key)
             for group in page_groups
         ]
         rows = []
@@ -473,7 +466,7 @@ def events_history(
             rows_stmt = (
                 select(Case.external_case_id, Case.case_number, DocumentEvent, ContentType, DocumentStatus.is_processed)
                 .join(DocumentEvent, DocumentEvent.case_id == Case.id)
-                .join(ContentType, ContentType.event_id == DocumentEvent.id)
+                .outerjoin(ContentType, ContentType.event_id == DocumentEvent.id)
                 .outerjoin(
                     DocumentStatus,
                     and_(
@@ -486,7 +479,7 @@ def events_history(
                     tuple_(
                         Case.id,
                         func.coalesce(DocumentEvent.document_external_id, ''),
-                        ContentType.content_type_external_id,
+                        func.coalesce(ContentType.content_type_external_id, ''),
                     ).in_(page_group_keys)
                 )
             )
@@ -507,10 +500,10 @@ def events_history(
                 'actualDate': event.actual_date.isoformat() if event.actual_date else None,
                 'isDeleted': event.is_deleted,
                 'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
-                'contentTypeName': content.name,
+                'contentTypeName': get_event_content_type_name(event, content),
                 'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_id,
                 'documentId': event.document_external_id,
-                'contentTypeId': content.content_type_external_id,
+                'contentTypeId': get_event_content_type_id(event, content),
                 'isProcessed': bool(is_processed),
             }
             for case_id, case_number, event, content, is_processed in rows
@@ -535,7 +528,7 @@ def case_history(case_external_id: str, processed: str | None = None, _: dict = 
 
         stmt = (
             select(DocumentEvent, ContentType, DocumentStatus.is_processed)
-            .join(ContentType, ContentType.event_id == DocumentEvent.id)
+            .outerjoin(ContentType, ContentType.event_id == DocumentEvent.id)
             .outerjoin(
                 DocumentStatus,
                 and_(
@@ -560,63 +553,14 @@ def case_history(case_external_id: str, processed: str | None = None, _: dict = 
             'actualDate': event.actual_date.isoformat() if event.actual_date else None,
             'isDeleted': event.is_deleted,
             'eventType': EVENT_TRANSLATIONS.get(event.event_type, event.event_type),
-            'contentTypeName': content.name,
+            'contentTypeName': get_event_content_type_name(event, content),
             'eventDataId': (event.raw_item or {}).get('eventData', {}).get('id') or case_external_id,
             'documentId': event.document_external_id,
-            'contentTypeId': content.content_type_external_id,
+            'contentTypeId': get_event_content_type_id(event, content),
             'isProcessed': bool(is_processed),
         }
         for event, content, is_processed in rows
     ]
-
-
-@app.post('/documents/availability')
-def documents_availability(payload: dict, _: dict = Depends(require_auth)):
-    documents = payload.get('documents')
-    if not isinstance(documents, list):
-        raise HTTPException(status_code=400, detail='documents list is required')
-
-    normalized_documents = []
-    seen_keys: set[str] = set()
-    for document in documents[:50]:
-        if not isinstance(document, dict):
-            continue
-        event_data_id = str(document.get('eventDataId') or '').strip()
-        document_id = str(document.get('documentId') or '').strip()
-        if not event_data_id or not document_id:
-            continue
-        key = f'{event_data_id}:{document_id}'
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        normalized_documents.append((key, event_data_id, document_id))
-
-    results: dict[str, str] = {}
-    if normalized_documents:
-        with ThreadPoolExecutor(max_workers=min(6, len(normalized_documents))) as executor:
-            future_map = {
-                executor.submit(check_casebook_document_available, event_data_id, document_id): key
-                for key, event_data_id, document_id in normalized_documents
-            }
-            for future in as_completed(future_map):
-                key = future_map[future]
-                try:
-                    results[key] = future.result()
-                except Exception:
-                    results[key] = 'unknown'
-
-    return {
-        'documents': [
-            {
-                'key': key,
-                'eventDataId': event_data_id,
-                'documentId': document_id,
-                'available': results.get(key) == 'available',
-                'status': results.get(key, 'unknown'),
-            }
-            for key, event_data_id, document_id in normalized_documents
-        ]
-    }
 
 
 @app.patch('/documents/status')

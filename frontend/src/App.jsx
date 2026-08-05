@@ -186,12 +186,6 @@ async function apiPost(path, token, payload = {}) {
   return resp.json()
 }
 
-async function fetchDocumentAvailability(token, documents = []) {
-  if (!documents.length) return []
-  const payload = await apiPost('/documents/availability', token, { documents })
-  return payload?.documents || []
-}
-
 async function apiPatch(path, token, payload = {}) {
   const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
   const resp = await fetch(`${API_URL}${path}`, { method: 'PATCH', headers, body: JSON.stringify(payload) })
@@ -305,13 +299,6 @@ function logWidgetBootstrap(mode) {
   console.groupEnd()
 }
 
-function getDocumentAvailabilityKey(item) {
-  const eventDataId = item.eventDataId || item.caseId
-  const documentId = item.documentId
-  if (!eventDataId || !documentId) return null
-  return `${eventDataId}:${documentId}`
-}
-
 function buildDocumentLink(item) {
   const eventDataId = item.eventDataId || item.caseId
   const documentId = item.documentId
@@ -370,46 +357,10 @@ function HistoryRow({ item, index, showCase = false, actions }) {
   )
 }
 
-function GroupedHistoryList({ items, token, showCase = false, showProcessingControl = false, onProcessedChange }) {
+function GroupedHistoryList({ items, showCase = false, showProcessingControl = false, onProcessedChange }) {
   const groups = useMemo(() => buildDocumentGroups(items), [items])
   const [expandedKeys, setExpandedKeys] = useState({})
-  const [availabilityByKey, setAvailabilityByKey] = useState({})
   const toggleKey = (key) => setExpandedKeys((prev) => ({ ...prev, [key]: !prev[key] }))
-
-  useEffect(() => {
-    if (!token) return
-    const documentsToCheck = groups
-      .map((group) => group.representative)
-      .map((item) => ({ item, key: getDocumentAvailabilityKey(item) }))
-      .filter(({ key }) => key && availabilityByKey[key] === undefined)
-      .map(({ item, key }) => ({
-        key,
-        eventDataId: item.eventDataId || item.caseId,
-        documentId: item.documentId,
-      }))
-
-    if (!documentsToCheck.length) return
-
-    setAvailabilityByKey((prev) => ({
-      ...prev,
-      ...Object.fromEntries(documentsToCheck.map((doc) => [doc.key, 'checking'])),
-    }))
-
-    fetchDocumentAvailability(token, documentsToCheck)
-      .then((documents) => {
-        setAvailabilityByKey((prev) => ({
-          ...prev,
-          ...Object.fromEntries(documents.map((doc) => [doc.key, doc.status === 'unavailable' ? false : 'available'])),
-        }))
-      })
-      .catch((err) => {
-        console.warn('[Casebook app] Failed to check document availability', err)
-        setAvailabilityByKey((prev) => ({
-          ...prev,
-          ...Object.fromEntries(documentsToCheck.map((doc) => [doc.key, 'available'])),
-        }))
-      })
-  }, [groups, token, availabilityByKey])
 
   return groups.map((group, index) => {
     const rep = group.representative
@@ -417,10 +368,6 @@ function GroupedHistoryList({ items, token, showCase = false, showProcessingCont
     const groupKey = `${rep.caseId || 'no-case'}-${rep.documentId || 'no-document'}-${rep.contentTypeId || rep.contentTypeName || 'no-doc'}-${index}`
     const expanded = !!expandedKeys[groupKey]
     const docLink = buildDocumentLink(rep)
-    const docAvailabilityKey = getDocumentAvailabilityKey(rep)
-    const docAvailability = docAvailabilityKey ? availabilityByKey[docAvailabilityKey] : undefined
-    const isDocumentAvailable = docAvailability === true || docAvailability === 'available'
-    const isDocumentChecking = docAvailability === undefined || docAvailability === 'checking'
     const caseLink = showCase ? buildCaseLink(rep) : null
     const isDeleted = group.history.some((item) => item.isDeleted)
 
@@ -442,19 +389,10 @@ function GroupedHistoryList({ items, token, showCase = false, showProcessingCont
             Открыть в КАД <ExternalLink size={12} />
           </a>
         )}
-        {docLink && isDocumentAvailable && (
+        {docLink && (
           <a className="doc-open-btn row-doc-link" href={docLink} target="_blank" rel="noreferrer" title="Открыть документ в КАД">
             Документ <FileText size={13} />
           </a>
-        )}
-        {docLink && !isDocumentAvailable && (
-          <span
-            className={`doc-open-btn row-doc-link disabled${isDocumentChecking ? ' checking' : ''}`}
-            title={isDocumentChecking ? 'Проверяем наличие документа в КАД' : 'Документ недоступен в КАД'}
-            aria-disabled="true"
-          >
-            {isDocumentChecking ? 'Проверка…' : 'Нет документа'} <FileText size={13} />
-          </span>
         )}
       </div>
     ) : null
