@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from requests import RequestException
-from sqlalchemy import and_, func, select, tuple_
+from sqlalchemy import and_, func, or_, select, tuple_
 
 from .auth import create_access_token, require_auth
 from .config import settings
@@ -23,6 +23,30 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
+
+
+
+def normalize_portal_domain(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    normalized = normalized.removeprefix('https://').removeprefix('http://')
+    normalized = normalized.split('/', 1)[0]
+    return normalized or None
+
+
+def apply_case_source_filter(stmt, domain: str | None):
+    normalized_domain = normalize_portal_domain(domain)
+    if not normalized_domain or normalized_domain == 'local.test':
+        return stmt
+    return stmt.where(or_(Case.source.is_(None), Case.source == '', func.lower(Case.source) == normalized_domain))
+
+
+def ensure_case_available_for_domain(case: Case, domain: str | None) -> None:
+    normalized_domain = normalize_portal_domain(domain)
+    case_source = normalize_portal_domain(case.source)
+    if case_source and normalized_domain and normalized_domain != 'local.test' and case_source != normalized_domain:
+        raise HTTPException(status_code=404, detail='Case not found')
 
 EVENT_TRANSLATIONS = {
     'added': 'Добавлено',
@@ -338,13 +362,32 @@ def run_full_sync(_: dict = Depends(require_auth)):
     return response.json()
 
 
+@app.post('/admin/sync/sources')
+def run_sources_sync(_: dict = Depends(require_auth)):
+    target_url = f'{settings.updater_service_url.rstrip("/")}/sync/sources'
+    try:
+        response = requests.post(target_url, timeout=180)
+    except RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                'Не удалось подключиться к updater service. '
+                f'Проверьте UPDATER_SERVICE_URL (сейчас: {settings.updater_service_url}).'
+            ),
+        ) from exc
+
+    if not response.ok:
+        raise HTTPException(status_code=502, detail='Не удалось запустить заполнение source')
+    return response.json()
+
+
 @app.get('/cases')
 def list_cases(
     search: str | None = None,
     case_number: str | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: dict = Depends(require_auth),
+    claims: dict = Depends(require_auth),
 ):
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
@@ -356,6 +399,7 @@ def list_cases(
             .join(DocumentEvent, DocumentEvent.case_id == Case.id)
             .group_by(Case.external_case_id, Case.case_number)
         )
+        base_stmt = apply_case_source_filter(base_stmt, claims.get('domain'))
         if case_number:
             base_stmt = base_stmt.where(Case.case_number == case_number)
         elif search:
@@ -397,7 +441,7 @@ def events_history(
     date_field: str | None = None,
     page: int = 1,
     page_size: int = 10,
-    _: dict = Depends(require_auth),
+    claims: dict = Depends(require_auth),
 ):
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
@@ -429,6 +473,7 @@ def events_history(
                 ),
             )
         )
+        base_stmt = apply_case_source_filter(base_stmt, claims.get('domain'))
         case_search_value = case_number or search
         if case_search_value:
             base_stmt = base_stmt.where(Case.case_number.ilike(f'%{case_search_value}%'))
@@ -518,13 +563,14 @@ def events_history(
 
 
 @app.get('/cases/{case_external_id}/history')
-def case_history(case_external_id: str, processed: str | None = None, _: dict = Depends(require_auth)):
+def case_history(case_external_id: str, processed: str | None = None, claims: dict = Depends(require_auth)):
     processed_filter = normalize_processing_filter(processed)
 
     with SessionLocal() as db:
         case = db.execute(select(Case).where(Case.external_case_id == case_external_id)).scalar_one_or_none()
         if not case:
             raise HTTPException(status_code=404, detail='Case not found')
+        ensure_case_available_for_domain(case, claims.get('domain'))
 
         stmt = (
             select(DocumentEvent, ContentType, DocumentStatus.is_processed)
@@ -564,7 +610,7 @@ def case_history(case_external_id: str, processed: str | None = None, _: dict = 
 
 
 @app.patch('/documents/status')
-def update_document_status(payload: dict, _: dict = Depends(require_auth)):
+def update_document_status(payload: dict, claims: dict = Depends(require_auth)):
     case_external_id = payload.get('caseId')
     document_key = payload.get('documentId') or payload.get('documentKey')
     content_type_external_id = payload.get('contentTypeId')
@@ -577,6 +623,7 @@ def update_document_status(payload: dict, _: dict = Depends(require_auth)):
         case = db.execute(select(Case).where(Case.external_case_id == case_external_id)).scalar_one_or_none()
         if not case:
             raise HTTPException(status_code=404, detail='Case not found')
+        ensure_case_available_for_domain(case, claims.get('domain'))
 
         status = db.execute(
             select(DocumentStatus).where(

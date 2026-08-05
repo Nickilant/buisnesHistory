@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     database_url: str = 'postgresql+psycopg2://app:app@postgres:5432/casebook'
 
     casebook_api_url: str = 'https://api3.casebook.ru/arbitrage/tracking/events/documents'
+    case_source_api_url: str = 'http://185.47.206.115:8081'
+    case_source_timeout_seconds: float = 20.0
     casebook_api_key: str
     casebook_api_version: str = '2'
     casebook_auth_scheme: str = 'auto'

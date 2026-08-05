@@ -121,6 +121,16 @@
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
 - `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)
+- `POST /admin/sync/sources` (проксирует ручное заполнение пустого `source` у дел в updater)
+
+## Разделение дел по Bitrix-порталам
+
+- В таблице `cases` есть nullable-поле `source`.
+- Если `source` пустой, дело считается общим и отдается всем Bitrix-порталам.
+- Если `source` заполнен, дело отдается только порталу, чей `DOMAIN/domain` совпадает с `source` после нормализации домена.
+- Source заполняется из `CASE_SOURCE_API_URL` запросом `GET /case/{case_number}`, который должен вернуть JSON вида `{"case_number": "А40-12345/2023", "case_source": "arbitrazhrf.bitrix24.ru"}`.
+- Ручной запуск заполнения пустых source: `POST /api/admin/sync/sources` или напрямую в updater `POST /sync/sources`.
+- При интервальном обновлении новые дела сразу пытаются получить `source`; если API недоступен или вернул пустой ответ, дело остается с пустым `source` и продолжает отдаваться всем порталам.
 
 ## Bitrix REST интеграция
 
@@ -154,6 +164,8 @@ POSTGRES_PASSWORD=app
 DATABASE_URL=postgresql+psycopg2://app:app@postgres:5432/casebook
 
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
+CASE_SOURCE_API_URL=http://185.47.206.115:8081
+CASE_SOURCE_TIMEOUT_SECONDS=20
 CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
 # auto/apikey отправляет только apikey, как в curl-примере Casebook;
@@ -354,6 +366,8 @@ POSTGRES_PASSWORD=strong_password_here
 DATABASE_URL=postgresql+psycopg2://app:strong_password_here@postgres:5432/casebook
 
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
+CASE_SOURCE_API_URL=http://185.47.206.115:8081
+CASE_SOURCE_TIMEOUT_SECONDS=20
 CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
 CASEBOOK_API_VERSION=2
 # auto/apikey отправляет только apikey, как в curl-примере Casebook;

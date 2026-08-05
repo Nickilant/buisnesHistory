@@ -20,6 +20,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://app:app@postgres:5432/casebook}
       CASEBOOK_API_URL: ${CASEBOOK_API_URL:-https://api3.casebook.ru/arbitrage/tracking/events/documents}
+      CASE_SOURCE_API_URL: ${CASE_SOURCE_API_URL:-http://185.47.206.115:8081}
+      CASE_SOURCE_TIMEOUT_SECONDS: ${CASE_SOURCE_TIMEOUT_SECONDS:-20}
       CASEBOOK_API_KEY: ${CASEBOOK_API_KEY}
       CASEBOOK_API_VERSION: ${CASEBOOK_API_VERSION:-2}
       CASEBOOK_AUTH_SCHEME: ${CASEBOOK_AUTH_SCHEME:-auto}

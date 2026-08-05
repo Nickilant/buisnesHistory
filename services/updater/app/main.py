@@ -9,7 +9,13 @@ from fastapi import FastAPI, Header, HTTPException
 
 from .config import settings
 from .db import init_db
-from .sync_service import run_sync_with_logging, sync_casebook_all, sync_previous_six_hours, sync_today_and_tomorrow
+from .sync_service import (
+    refresh_missing_case_sources,
+    run_sync_with_logging,
+    sync_casebook_all,
+    sync_previous_six_hours,
+    sync_today_and_tomorrow,
+)
 
 app = FastAPI(title='Casebook Updater Service')
 SCHEDULER_TIMEZONE = ZoneInfo('Europe/Moscow')
@@ -141,6 +147,15 @@ def health() -> dict[str, str]:
 def run_manual_sync() -> dict:
     try:
         result = run_sync_with_logging('ручное (за сегодня и завтра)', sync_today_and_tomorrow)
+        return {'status': 'ok', 'result': result}
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post('/sync/sources')
+def run_sources_sync() -> dict:
+    try:
+        result = run_sync_with_logging('ручное заполнение source дел', refresh_missing_case_sources)
         return {'status': 'ok', 'result': result}
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
