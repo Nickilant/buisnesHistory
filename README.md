@@ -221,6 +221,8 @@ docker compose up --build
 
 При первоначальной установке backend отвечает `303 See Other`, чтобы POST Bitrix был преобразован в GET frontend. Frontend вызывает `BX24.installFinish()` для каждого запуска с `APP_SID`; незавершённая установка поэтому не блокируется устаревшим флагом в `localStorage`.
 
+Если Bitrix не передал `member_id` или `user_id` в URL запуска, frontend получает портал через `BX24.getAuth()` и текущего пользователя через `user.current`. В Bitrix-контексте локальная авторизация не используется.
+
 ## Безопасность
 
 - Все секреты только через env.

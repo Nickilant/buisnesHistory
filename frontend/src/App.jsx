@@ -79,11 +79,45 @@ async function ensureBx24() {
   })
 }
 
+async function getBitrixLaunchIdentity() {
+  const bx24 = await ensureBx24()
+  if (!bx24) return {}
+
+  await new Promise((resolve) => {
+    if (typeof bx24.init === 'function') bx24.init(resolve)
+    else resolve()
+  })
+
+  const auth = typeof bx24.getAuth === 'function' ? (bx24.getAuth() || {}) : {}
+  let userId = auth.user_id || auth.userId || null
+  if (!userId && typeof bx24.callMethod === 'function') {
+    userId = await new Promise((resolve) => {
+      bx24.callMethod('user.current', {}, (result) => {
+        const user = result && typeof result.data === 'function' ? result.data() : null
+        resolve(user?.ID || user?.id || null)
+      })
+    })
+  }
+
+  return {
+    domain: auth.domain || auth.DOMAIN || null,
+    memberId: auth.member_id || auth.memberId || null,
+    userId,
+  }
+}
+
 async function ensureAuth() {
   const query = getQuery()
-  const memberId = query.get('member_id')
-  const userId = query.get('user_id')
-  const domain = query.get('DOMAIN') || query.get('domain')
+  let memberId = query.get('member_id')
+  let userId = query.get('user_id')
+  let domain = query.get('DOMAIN') || query.get('domain')
+  const isBitrixLaunch = Boolean(domain || query.get('APP_SID') || query.get('PLACEMENT'))
+  if (isBitrixLaunch && (!memberId || !userId || !domain)) {
+    const identity = await getBitrixLaunchIdentity()
+    memberId ||= identity.memberId
+    userId ||= identity.userId
+    domain ||= identity.domain
+  }
   let token = localStorage.getItem('access_token')
   // Bitrix portals share the application's origin and therefore its localStorage.
   // Always exchange the current launch parameters for a fresh token so a token
@@ -103,7 +137,7 @@ async function ensureAuth() {
       token = null
     }
   }
-  if (!token) {
+  if (!token && !isBitrixLaunch) {
     const localResp = await fetch(`${API_URL}/auth/local`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
