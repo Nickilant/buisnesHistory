@@ -85,7 +85,10 @@ async function ensureAuth() {
   const userId = query.get('user_id')
   const domain = query.get('DOMAIN') || query.get('domain')
   let token = localStorage.getItem('access_token')
-  if (!token && memberId && userId) {
+  // Bitrix portals share the application's origin and therefore its localStorage.
+  // Always exchange the current launch parameters for a fresh token so a token
+  // issued for one portal (or with an old JWT secret) is never reused by another.
+  if (memberId && userId) {
     const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -95,6 +98,9 @@ async function ensureAuth() {
       const data = await resp.json()
       token = data.access_token
       localStorage.setItem('access_token', token)
+    } else {
+      localStorage.removeItem('access_token')
+      token = null
     }
   }
   if (!token) {
@@ -170,6 +176,7 @@ async function apiGet(path, token) {
   const headers = token ? { Authorization: `Bearer ${token}` } : {}
   const resp = await fetch(`${API_URL}${path}`, { headers })
   if (!resp.ok) {
+    if (resp.status === 401) localStorage.removeItem('access_token')
     const body = await resp.text()
     throw new Error(body || `Ошибка запроса ${path}`)
   }
@@ -180,6 +187,7 @@ async function apiPost(path, token, payload = {}) {
   const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
   const resp = await fetch(`${API_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(payload) })
   if (!resp.ok) {
+    if (resp.status === 401) localStorage.removeItem('access_token')
     const body = await resp.text()
     throw new Error(body || `Ошибка запроса ${path}`)
   }
@@ -190,6 +198,7 @@ async function apiPatch(path, token, payload = {}) {
   const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
   const resp = await fetch(`${API_URL}${path}`, { method: 'PATCH', headers, body: JSON.stringify(payload) })
   if (!resp.ok) {
+    if (resp.status === 401) localStorage.removeItem('access_token')
     const body = await resp.text()
     throw new Error(body || `Ошибка запроса ${path}`)
   }
