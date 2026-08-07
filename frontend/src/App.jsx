@@ -79,13 +79,50 @@ async function ensureBx24() {
   })
 }
 
+async function getBitrixLaunchIdentity() {
+  const bx24 = await ensureBx24()
+  if (!bx24) return {}
+
+  await new Promise((resolve) => {
+    if (typeof bx24.init === 'function') bx24.init(resolve)
+    else resolve()
+  })
+
+  const auth = typeof bx24.getAuth === 'function' ? (bx24.getAuth() || {}) : {}
+  let userId = auth.user_id || auth.userId || null
+  if (!userId && typeof bx24.callMethod === 'function') {
+    userId = await new Promise((resolve) => {
+      bx24.callMethod('user.current', {}, (result) => {
+        const user = result && typeof result.data === 'function' ? result.data() : null
+        resolve(user?.ID || user?.id || null)
+      })
+    })
+  }
+
+  return {
+    domain: auth.domain || auth.DOMAIN || null,
+    memberId: auth.member_id || auth.memberId || null,
+    userId,
+  }
+}
+
 async function ensureAuth() {
   const query = getQuery()
-  const memberId = query.get('member_id')
-  const userId = query.get('user_id')
-  const domain = query.get('DOMAIN') || query.get('domain')
+  let memberId = query.get('member_id')
+  let userId = query.get('user_id')
+  let domain = query.get('DOMAIN') || query.get('domain')
+  const isBitrixLaunch = Boolean(domain || query.get('APP_SID') || query.get('PLACEMENT'))
+  if (isBitrixLaunch && (!memberId || !userId || !domain)) {
+    const identity = await getBitrixLaunchIdentity()
+    memberId ||= identity.memberId
+    userId ||= identity.userId
+    domain ||= identity.domain
+  }
   let token = localStorage.getItem('access_token')
-  if (!token && memberId && userId) {
+  // Bitrix portals share the application's origin and therefore its localStorage.
+  // Always exchange the current launch parameters for a fresh token so a token
+  // issued for one portal (or with an old JWT secret) is never reused by another.
+  if (memberId && userId) {
     const resp = await fetch(`${API_URL}/auth/bitrix-auto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -95,9 +132,12 @@ async function ensureAuth() {
       const data = await resp.json()
       token = data.access_token
       localStorage.setItem('access_token', token)
+    } else {
+      localStorage.removeItem('access_token')
+      token = null
     }
   }
-  if (!token) {
+  if (!token && !isBitrixLaunch) {
     const localResp = await fetch(`${API_URL}/auth/local`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -113,15 +153,15 @@ async function ensureAuth() {
 
 async function finalizeBitrixInstallIfNeeded() {
   const query = getQuery()
-  const memberId = query.get('member_id') || query.get('memberId')
-  const installStateKey = memberId ? `bx24_install_finish_${memberId}` : 'bx24_install_finish'
-  if (localStorage.getItem(installStateKey) === 'done') return
+  // APP_SID is supplied by Bitrix for the installation frame. Do not persist a
+  // local "done" flag: a failed/unfinished Bitrix installation must be able to
+  // call installFinish again after a reload or reinstall.
+  if (!query.get('APP_SID')) return
   const bx24 = await ensureBx24()
   if (!bx24 || typeof bx24.installFinish !== 'function') return
   return new Promise((resolve) => {
     const runInstallFinish = () => {
       bx24.installFinish()
-      localStorage.setItem(installStateKey, 'done')
       resolve()
     }
     if (typeof bx24.init === 'function') {
@@ -170,6 +210,7 @@ async function apiGet(path, token) {
   const headers = token ? { Authorization: `Bearer ${token}` } : {}
   const resp = await fetch(`${API_URL}${path}`, { headers })
   if (!resp.ok) {
+    if (resp.status === 401) localStorage.removeItem('access_token')
     const body = await resp.text()
     throw new Error(body || `Ошибка запроса ${path}`)
   }
@@ -180,6 +221,7 @@ async function apiPost(path, token, payload = {}) {
   const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
   const resp = await fetch(`${API_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(payload) })
   if (!resp.ok) {
+    if (resp.status === 401) localStorage.removeItem('access_token')
     const body = await resp.text()
     throw new Error(body || `Ошибка запроса ${path}`)
   }
@@ -190,6 +232,7 @@ async function apiPatch(path, token, payload = {}) {
   const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
   const resp = await fetch(`${API_URL}${path}`, { method: 'PATCH', headers, body: JSON.stringify(payload) })
   if (!resp.ok) {
+    if (resp.status === 401) localStorage.removeItem('access_token')
     const body = await resp.text()
     throw new Error(body || `Ошибка запроса ${path}`)
   }

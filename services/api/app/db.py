@@ -23,6 +23,7 @@ class Case(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     external_case_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     case_number: Mapped[str] = mapped_column(String(128), index=True)
+    source: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -40,6 +41,11 @@ class DocumentEvent(Base):
     raw_item: Mapped[dict] = mapped_column(JSON)
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def _ensure_cases_source_column(conn) -> None:
+    conn.exec_driver_sql("ALTER TABLE cases ADD COLUMN IF NOT EXISTS source VARCHAR(255)")
+    conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_cases_source ON cases (source)")
 
 
 def _ensure_document_events_is_deleted_column(conn) -> None:
@@ -97,6 +103,7 @@ def init_db(max_attempts: int = 10, retry_delay_seconds: int = 3) -> None:
                 conn.exec_driver_sql('SELECT pg_advisory_lock(214748364)')
                 try:
                     Base.metadata.create_all(bind=conn)
+                    _ensure_cases_source_column(conn)
                     _ensure_document_events_is_deleted_column(conn)
                 finally:
                     conn.exec_driver_sql('SELECT pg_advisory_unlock(214748364)')

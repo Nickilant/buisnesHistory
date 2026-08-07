@@ -4,12 +4,13 @@ import logging
 from time import sleep
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import requests
 from dateutil import parser
 from requests import HTTPError, RequestException
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from .config import settings
 from .db import Case, ContentType, DocumentEvent, SessionLocal
@@ -46,6 +47,55 @@ def _build_hash(item: dict[str, Any]) -> str:
     payload = json.dumps(stable, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
+
+
+def normalize_source(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    normalized = normalized.removeprefix('https://').removeprefix('http://')
+    normalized = normalized.split('/', 1)[0]
+    return normalized or None
+
+
+def fetch_case_source(case_number: str) -> str | None:
+    if not case_number:
+        return None
+    base_url = settings.case_source_api_url.rstrip('/')
+    url = f'{base_url}/case/{quote(case_number, safe="")}'
+    try:
+        response = requests.get(url, timeout=settings.case_source_timeout_seconds)
+        response.raise_for_status()
+        payload = response.json()
+    except (RequestException, ValueError) as exc:
+        logger.warning('Не удалось получить source для дела %s из %s: %s.', case_number, url, exc)
+        return None
+
+    source = normalize_source(payload.get('case_source'))
+    if not source:
+        logger.warning('Case source API вернул пустой case_source для дела %s: %s.', case_number, payload)
+    return source
+
+
+def refresh_missing_case_sources() -> dict[str, int]:
+    updated = 0
+    skipped = 0
+    failed = 0
+
+    with SessionLocal() as db:
+        cases = db.execute(
+            select(Case).where(func.coalesce(Case.source, '') == '').order_by(Case.case_number.asc())
+        ).scalars().all()
+        for case_db in cases:
+            source = fetch_case_source(case_db.case_number)
+            if source:
+                case_db.source = source
+                updated += 1
+            else:
+                failed += 1
+        db.commit()
+
+    return {'fetched': len(cases), 'inserted': 0, 'updated': updated, 'skipped': skipped + failed}
 
 def _to_bool(value: Any) -> bool:
     if isinstance(value, bool):
@@ -230,6 +280,7 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
     processed = 0
     progress_every = max(1, settings.progress_log_every_items)
     seen_source_hashes: set[str] = set()
+    case_sources_by_number: dict[str, str | None] = {}
 
     with SessionLocal() as db:
         for item in payload_items:
@@ -252,11 +303,23 @@ def _sync_payload_items(payload_items: list[dict[str, Any]]) -> dict[str, int]:
 
             case_db = db.execute(select(Case).where(Case.external_case_id == case_ext_id)).scalar_one_or_none()
             if not case_db:
-                case_db = Case(external_case_id=case_ext_id, case_number=case_number)
+                source = case_sources_by_number.get(case_number)
+                if case_number not in case_sources_by_number:
+                    source = fetch_case_source(case_number)
+                    case_sources_by_number[case_number] = source
+                case_db = Case(external_case_id=case_ext_id, case_number=case_number, source=source)
                 db.add(case_db)
                 db.flush()
-            elif case_db.case_number != case_number:
-                case_db.case_number = case_number
+            else:
+                if case_db.case_number != case_number:
+                    case_db.case_number = case_number
+                if not case_db.source:
+                    source = case_sources_by_number.get(case_number)
+                    if case_number not in case_sources_by_number:
+                        source = fetch_case_source(case_number)
+                        case_sources_by_number[case_number] = source
+                    if source:
+                        case_db.source = source
 
             document_id = document_obj.get('id')
 

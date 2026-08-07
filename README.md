@@ -121,6 +121,16 @@
 - `POST /bitrix/rest/{method}`
 - `POST /bitrix/token/refresh`
 - `POST /admin/sync/full` (проксирует скрытую полную синхронизацию в updater)
+- `POST /admin/sync/sources` (проксирует ручное заполнение пустого `source` у дел в updater)
+
+## Разделение дел по Bitrix-порталам
+
+- В таблице `cases` есть nullable-поле `source`.
+- Если `source` пустой, дело считается общим и отдается всем Bitrix-порталам.
+- Если `source` заполнен, дело отдается только порталу, чей `DOMAIN/domain` совпадает с `source` после нормализации домена.
+- Source заполняется из `CASE_SOURCE_API_URL` запросом `GET /case/{case_number}`, который должен вернуть JSON вида `{"case_number": "А40-12345/2023", "case_source": "arbitrazhrf.bitrix24.ru"}`.
+- Ручной запуск заполнения пустых source: `POST /api/admin/sync/sources` или напрямую в updater `POST /sync/sources`.
+- При интервальном обновлении новые дела сразу пытаются получить `source`; если API недоступен или вернул пустой ответ, дело остается с пустым `source` и продолжает отдаваться всем порталам.
 
 ## Bitrix REST интеграция
 
@@ -138,7 +148,7 @@
   - `Номер дела | ссылка на дело`
 - Ссылка: `https://kad.arbitr.ru/Card/$caseId`.
 - Авто-логин, если в URL есть `member_id` + `user_id`.
-- JWT хранится в `localStorage`.
+- JWT хранится в `localStorage`, но при каждом запуске из Bitrix перевыпускается по текущим `DOMAIN`, `member_id` и `user_id`, чтобы разные порталы не использовали общий или устаревший токен.
 - Compact режим для `PLACEMENT=CRM_DEAL_DETAIL*`.
 - Чтение `deal_id` из `PLACEMENT_OPTIONS`.
 - Скрытый триггер полной синхронизации в интерфейсе: 7 кликов по иконке весов в хедере, после чего появляется небольшое alert-окно со статусом запуска/завершения.
@@ -154,6 +164,8 @@ POSTGRES_PASSWORD=app
 DATABASE_URL=postgresql+psycopg2://app:app@postgres:5432/casebook
 
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
+CASE_SOURCE_API_URL=http://185.47.206.115:8081
+CASE_SOURCE_TIMEOUT_SECONDS=20
 CASEBOOK_API_KEY=rFPi5qOWLDofJ6N2o4CrpY8f4HpskDMC
 CASEBOOK_API_VERSION=2
 # auto/apikey отправляет только apikey, как в curl-примере Casebook;
@@ -206,6 +218,10 @@ docker compose up --build
 3. `/bitrix/widget` делает redirect на frontend, прокидывая query-параметры.
 4. Frontend выполняет авто-логин через `/auth/bitrix-auto`, получает JWT и работает в iframe.
 5. Для кастомного поля номера дела задайте `CASE_NUMBER_FIELDS` (через запятую), например: `UF_CRM_1708426613594`.
+
+При первоначальной установке backend отвечает `303 See Other`, чтобы POST Bitrix был преобразован в GET frontend. Frontend вызывает `BX24.installFinish()` для каждого запуска с `APP_SID`; незавершённая установка поэтому не блокируется устаревшим флагом в `localStorage`.
+
+Если Bitrix не передал `member_id` или `user_id` в URL запуска, frontend получает портал через `BX24.getAuth()` и текущего пользователя через `user.current`. В Bitrix-контексте локальная авторизация не используется.
 
 ## Безопасность
 
@@ -354,6 +370,8 @@ POSTGRES_PASSWORD=strong_password_here
 DATABASE_URL=postgresql+psycopg2://app:strong_password_here@postgres:5432/casebook
 
 CASEBOOK_API_URL=https://api3.casebook.ru/arbitrage/tracking/events/documents
+CASE_SOURCE_API_URL=http://185.47.206.115:8081
+CASE_SOURCE_TIMEOUT_SECONDS=20
 CASEBOOK_API_KEY=YOUR_CASEBOOK_KEY
 CASEBOOK_API_VERSION=2
 # auto/apikey отправляет только apikey, как в curl-примере Casebook;
