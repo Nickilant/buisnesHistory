@@ -219,6 +219,8 @@ docker compose up --build
 4. Frontend выполняет авто-логин через `/auth/bitrix-auto`, получает JWT и работает в iframe.
 5. Для кастомного поля номера дела задайте `CASE_NUMBER_FIELDS` (через запятую), например: `UF_CRM_1708426613594`.
 
+При первоначальной установке backend отвечает `303 See Other`, чтобы POST Bitrix был преобразован в GET frontend. Frontend вызывает `BX24.installFinish()` для каждого запуска с `APP_SID`; незавершённая установка поэтому не блокируется устаревшим флагом в `localStorage`.
+
 ## Безопасность
 
 - Все секреты только через env.

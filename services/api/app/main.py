@@ -245,7 +245,7 @@ async def bitrix_install(request: Request):
 
     if should_redirect_to_frontend:
         redirect_url = f"{settings.frontend_url}?{urlencode(payload)}" if payload else settings.frontend_url
-        return RedirectResponse(url=redirect_url, status_code=307)
+        return RedirectResponse(url=redirect_url, status_code=303)
 
     return {'status': 'installed'}
 
@@ -274,7 +274,7 @@ async def bitrix_widget(request: Request):
     payload = await read_payload(request)
 
     redirect_url = f"{settings.frontend_url}?{urlencode(payload)}" if payload else settings.frontend_url
-    return RedirectResponse(url=redirect_url, status_code=307)
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @app.post('/auth/bitrix-auto')

@@ -119,15 +119,15 @@ async function ensureAuth() {
 
 async function finalizeBitrixInstallIfNeeded() {
   const query = getQuery()
-  const memberId = query.get('member_id') || query.get('memberId')
-  const installStateKey = memberId ? `bx24_install_finish_${memberId}` : 'bx24_install_finish'
-  if (localStorage.getItem(installStateKey) === 'done') return
+  // APP_SID is supplied by Bitrix for the installation frame. Do not persist a
+  // local "done" flag: a failed/unfinished Bitrix installation must be able to
+  // call installFinish again after a reload or reinstall.
+  if (!query.get('APP_SID')) return
   const bx24 = await ensureBx24()
   if (!bx24 || typeof bx24.installFinish !== 'function') return
   return new Promise((resolve) => {
     const runInstallFinish = () => {
       bx24.installFinish()
-      localStorage.setItem(installStateKey, 'done')
       resolve()
     }
     if (typeof bx24.init === 'function') {
